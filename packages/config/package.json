@@ -1,0 +1,11 @@
+{
+  "name": "@ripeseed/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./eslint/base": "./eslint/base.cjs",
+    "./prettier/base": "./prettier/base.cjs",
+    "./tsconfig/base": "./tsconfig/base.json"
+  }
+}

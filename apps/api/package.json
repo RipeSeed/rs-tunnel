@@ -1,0 +1,40 @@
+{
+  "name": "@ripeseed/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "pnpm --filter @ripeseed/shared build && tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "eslint src test --ext .ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "format": "prettier --check src test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/rate-limit": "^10.3.0",
+    "@ripeseed/shared": "workspace:*",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.38.3",
+    "fastify": "^5.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@ripeseed/config": "workspace:*",
+    "@types/jsonwebtoken": "^9.0.8",
+    "@types/node": "^22.12.0",
+    "@types/pg": "^8.11.10",
+    "drizzle-kit": "^0.30.1",
+    "supertest": "^7.0.0",
+    "tsx": "^4.19.2",
+    "vitest": "^3.0.5"
+  }
+}

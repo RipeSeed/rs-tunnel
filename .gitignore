@@ -1,0 +1,11 @@
+node_modules
+.pnpm-store
+.env
+.env.*
+!.env.example
+coverage
+dist
+.DS_Store
+.vscode
+*.log
+apps/cli/.rs-tunnel

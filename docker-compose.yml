@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PORT: 8080
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:8080}
+      JWT_SECRET: ${JWT_SECRET}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+      SLACK_CLIENT_ID: ${SLACK_CLIENT_ID}
+      SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET}
+      SLACK_REDIRECT_URI: ${SLACK_REDIRECT_URI}
+      RIPSEED_SLACK_TEAM_ID: ${RIPSEED_SLACK_TEAM_ID}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID}
+      CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
+      CLOUDFLARE_BASE_DOMAIN: tunnel.ripeseed.io
+      JWT_ACCESS_TTL_MINUTES: 15
+      REFRESH_TTL_DAYS: 30
+      MAX_ACTIVE_TUNNELS: 5
+      HEARTBEAT_INTERVAL_SEC: 20
+      LEASE_TIMEOUT_SEC: 60
+      REAPER_INTERVAL_SEC: 30
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
