@@ -9,3 +9,4 @@ dist
 .vscode
 *.log
 apps/cli/.rs-tunnel
+.turbo
