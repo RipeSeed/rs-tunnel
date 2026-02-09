@@ -2,6 +2,7 @@ import {
   apiErrorSchema,
   authExchangeRequestSchema,
   authStartRequestSchema,
+  authStartResponseSchema,
   refreshRequestSchema,
   tokenPairSchema,
   tunnelCreateRequestSchema,
@@ -44,10 +45,12 @@ export class ApiClient {
     state: string;
   }> {
     const body = authStartRequestSchema.parse(input);
-    return this.request('/v1/auth/slack/start', {
+    const response = await this.request('/v1/auth/slack/start', {
       method: 'POST',
       body,
     });
+
+    return authStartResponseSchema.parse(response);
   }
 
   async exchangeLoginCode(input: { loginCode: string; codeVerifier: string }) {

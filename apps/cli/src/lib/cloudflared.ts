@@ -130,7 +130,11 @@ async function tryPackageManagerInstall(): Promise<boolean> {
 }
 
 function parseSha256Line(line: string): string {
-  return line.trim().split(/\s+/)[0];
+  const first = line.trim().split(/\s+/)[0];
+  if (!first) {
+    throw new Error('Invalid cloudflared checksum format.');
+  }
+  return first;
 }
 
 async function downloadWithChecksum(assetName: string, destination: string): Promise<void> {

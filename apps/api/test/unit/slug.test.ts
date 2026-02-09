@@ -12,6 +12,6 @@ describe('slug validation', () => {
   });
 
   it('rejects uppercase characters', () => {
-    expect(() => validateRequestedSlug('Abc')).toThrowError(/must match/);
+    expect(() => validateRequestedSlug('Abc')).toThrowError(/Uppercase characters are not allowed/);
   });
 });

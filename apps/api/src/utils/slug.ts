@@ -5,7 +5,13 @@ import { AppError } from '../lib/app-error.js';
 const ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
 export function validateRequestedSlug(slug: string): string {
-  const normalized = slug.trim().toLowerCase();
+  const trimmed = slug.trim();
+
+  if (trimmed !== trimmed.toLowerCase()) {
+    throw new AppError(400, 'INVALID_SLUG', 'Uppercase characters are not allowed in slug.');
+  }
+
+  const normalized = trimmed;
 
   if (normalized.includes('.')) {
     throw new AppError(400, 'INVALID_SLUG', 'Nested domains are not supported.');
