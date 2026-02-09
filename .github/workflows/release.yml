@@ -1,4 +1,4 @@
-name: Release CLI
+name: Release Packages
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - "v*.*.*"
 
 jobs:
-  publish-cli:
+  publish-packages:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -21,6 +21,9 @@ jobs:
           cache: pnpm
       - run: pnpm install
       - run: pnpm --filter @ripeseed/shared build
+      - run: pnpm --filter @ripeseed/shared publish --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: pnpm --filter @ripeseed/rs-tunnel build
       - run: pnpm --filter @ripeseed/rs-tunnel publish --no-git-checks
         env:
