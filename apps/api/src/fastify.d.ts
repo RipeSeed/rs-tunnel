@@ -1,4 +1,4 @@
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyReply } from 'fastify';
 
 import type { AccessTokenPayload, AuthService, TokenService, TunnelService } from './types.js';
 
@@ -13,6 +13,9 @@ declare module 'fastify' {
       tunnelService: TunnelService;
       tokenService: TokenService;
     };
-    authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    authenticate: (
+      request: import('fastify').FastifyRequest,
+      reply: FastifyReply
+    ) => Promise<void>;
   }
 }

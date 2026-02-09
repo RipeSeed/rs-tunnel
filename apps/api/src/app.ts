@@ -24,7 +24,7 @@ export function buildApp(input: BuildAppInput): FastifyInstance {
 
   app.decorate('services', input.services);
 
-  app.decorate('authenticate', async (request, _reply) => {
+  app.decorate('authenticate', async (request) => {
     const authHeader = request.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       throw new AppError(401, 'MISSING_AUTH', 'Missing bearer access token.');
