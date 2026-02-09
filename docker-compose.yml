@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
+      - ":5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
@@ -38,7 +38,7 @@ services:
       LEASE_TIMEOUT_SEC: 60
       REAPER_INTERVAL_SEC: 30
     ports:
-      - "8080:8080"
+      - ":8080"
 
 volumes:
   pgdata:
