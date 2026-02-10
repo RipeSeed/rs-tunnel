@@ -35,6 +35,21 @@ High-level flow:
 - `packages/shared`: cross-app contracts/types
 - `packages/config`: shared lint/format/ts config
 - `.github/workflows`: CI + release pipelines
+- `.github/copilot-instructions.md`: Repository-wide coding guidelines for GitHub Copilot
+- `.github/instructions/`: Path-specific Copilot instructions for different parts of the codebase
+- `AGENTS.md`: Operational guide for engineers and AI coding agents
+
+## GitHub Copilot Instructions
+
+This repository includes comprehensive instructions for GitHub Copilot to maintain code quality and consistency:
+
+- **`.github/copilot-instructions.md`**: Global coding standards, tech stack conventions, and behavioral constraints that apply across the entire repository
+- **`.github/instructions/api.instructions.md`**: API-specific patterns including service layer, Drizzle ORM, route handlers, and background workers
+- **`.github/instructions/cli.instructions.md`**: CLI-specific patterns including command structure, credential storage, cloudflared integration, and dashboard output
+- **`.github/instructions/shared.instructions.md`**: Shared package patterns for Zod schemas and contract definitions
+- **`.github/instructions/testing.instructions.md`**: Testing conventions for both unit and integration tests
+
+These instructions are automatically used by GitHub Copilot when working on code in their respective paths. See the [GitHub Copilot documentation](https://docs.github.com/en/copilot/tutorials/coding-agent/get-the-best-results) for more information.
 
 ## Prerequisites
 
