@@ -1,6 +1,6 @@
 {
   "name": "rs-tunnel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Ripeseed internal Cloudflare tunnel platform",
   "packageManager": "pnpm@10.0.0",

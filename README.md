@@ -25,7 +25,7 @@ High-level flow:
 3. API verifies email + workspace and issues tokens
 4. `rs-tunnel up --port 3000 [--url my-app]`
 5. API creates Cloudflare tunnel + DNS
-6. CLI runs `cloudflared` and heartbeats every 20s
+6. CLI starts a local proxy, runs `cloudflared`, renders an ngrok-style runtime dashboard, and heartbeats every 20s
 7. `rs-tunnel stop ...` deletes DNS and tunnel
 
 ## Repository layout
@@ -121,6 +121,7 @@ export RS_TUNNEL_API_BASE_URL=http://localhost:8080
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts doctor
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts login --email you@ripeseed.io
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts up --port 3000 --url my-app
+pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts up --port 3000 --verbose
 ```
 
 6. Stop tunnel:
@@ -135,11 +136,28 @@ pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts stop my-app.tunnel.ripes
 rs-tunnel login --email you@ripeseed.io
 rs-tunnel up --port 3000
 rs-tunnel up --port 3000 --url my-app
+rs-tunnel up --port 3000 --verbose
 rs-tunnel list
 rs-tunnel stop <tunnel-id-or-hostname>
 rs-tunnel logout
 rs-tunnel doctor
 ```
+
+## `up` runtime output
+
+`rs-tunnel up` renders an ngrok-style terminal dashboard while the tunnel is active.
+
+- Session header:
+  - `Account` (email from current session)
+  - `Version` (`rs-tunnel` CLI version)
+  - `Region` (best effort from `cloudflared`, else `n/a`)
+  - `Latency` (proxy-derived rolling latency, else `n/a`)
+  - `Forwarding` (`https://<slug>.tunnel.ripeseed.io -> http://localhost:<port>`)
+- Connections row:
+  - `ttl`, `opn`, `rt1`, `rt5`, `p50`, `p90` from local proxy observations
+- HTTP request stream:
+  - Example: `11:55:23.609 PKT GET /favicon.ico               404 Not Found`
+- `--verbose` additionally prints raw `cloudflared` lines in the request stream.
 
 ## Quality checks
 
@@ -222,6 +240,12 @@ Fix: validate `.env` loading and full connection string.
 Cause: redirect URI mismatch.
 
 Fix: `SLACK_REDIRECT_URI` must exactly match app config and environment.
+
+### CLI tests fail with `listen EPERM` (local proxy tests)
+
+Cause: sandboxed or restricted environments can block localhost bind/listen calls used by proxy tests.
+
+Fix: run `pnpm --filter @ripeseed/rs-tunnel test` in a normal local shell, or with approved elevated permissions in sandboxed tooling.
 
 ## License
 

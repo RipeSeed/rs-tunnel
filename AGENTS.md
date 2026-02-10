@@ -70,7 +70,19 @@ pnpm --filter @ripeseed/api dev
 ```bash
 export RS_TUNNEL_API_BASE_URL=http://localhost:8080
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts login --email you@ripeseed.io
+pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts up --port 3000 --url my-app
 ```
+
+## CLI runtime UX (ngrok-style)
+
+- `rs-tunnel up` starts a local reverse proxy on an ephemeral localhost port and creates the tunnel against that proxy.
+- The terminal renders an ngrok-style dashboard with:
+  - `Account`, `Version`, `Region`, `Latency`, `Forwarding`
+  - `Connections   ttl     opn     rt1     rt5     p50     p90`
+  - `HTTP Requests` stream with timestamp/method/path/status.
+- `--verbose` keeps the dashboard and also includes raw `cloudflared` output lines.
+- `Region` and `Latency` are best-effort and may show `n/a`.
+- Connection/latency metrics are proxy-derived approximations, not Cloudflare-native telemetry.
 
 ## Quality gates before push
 
@@ -115,6 +127,10 @@ Reason: CLI depends on shared package in registry.
 
 4. Docker warning about compose `version`:
 - Do not add `version` back to `docker-compose.yml`.
+
+5. CLI proxy tests fail with `listen EPERM` in restricted environments:
+- The `apps/cli/src/lib/local-proxy.test.ts` suite needs local socket bind permissions.
+- Run tests in a normal local shell (or with approved elevated permissions if sandboxed).
 
 ## Code style and conventions
 
