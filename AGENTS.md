@@ -2,6 +2,20 @@
 
 Operational guide for engineers and AI coding agents working in `rs-tunnel`.
 
+## Copilot Instructions
+
+This repository has comprehensive GitHub Copilot instructions configured:
+
+- **`.github/copilot-instructions.md`**: Repository-wide conventions and constraints
+- **`.github/instructions/`**: Path-specific instructions that automatically apply based on file location:
+  - `api.instructions.md`: Patterns for `apps/api/**/*.ts`
+  - `cli.instructions.md`: Patterns for `apps/cli/**/*.ts`
+  - `shared.instructions.md`: Patterns for `packages/shared/**/*.ts`
+  - `testing.instructions.md`: Patterns for all test files
+  - `code-review.instructions.md`: Code review guidelines for security, testing, quality, and architecture
+
+These instructions guide Copilot on code style, architectural patterns, testing conventions, and project-specific requirements. They complement the information in this operational guide.
+
 ## Mission
 
 `rs-tunnel` is an internal Ripeseed alternative to ngrok:
