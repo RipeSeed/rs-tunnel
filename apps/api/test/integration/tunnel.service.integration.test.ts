@@ -133,4 +133,53 @@ describe('TunnelService integration behaviors', () => {
     expect(cloudflare.deleteTunnelWithRetry).toHaveBeenCalledWith('cf-tunnel-id');
     expect(repository.markTunnelStopped).toHaveBeenCalledTimes(1);
   });
+
+  it('allows reusing slug after tunnel is stopped', async () => {
+    // First tunnel creation succeeds
+    repository.countActiveTunnels.mockResolvedValue(0);
+    repository.findActiveTunnelBySlug.mockResolvedValue(undefined);
+    repository.createTunnel.mockResolvedValue({
+      id: '11111111-1111-1111-1111-111111111111',
+      slug: 'my-app',
+      hostname: 'my-app.tunnel.ripeseed.io',
+    });
+    cloudflare.createTunnel.mockResolvedValue({ id: 'cf-tunnel-1' });
+    cloudflare.createDnsRecord.mockResolvedValue('dns-id-1');
+    cloudflare.getTunnelToken.mockResolvedValue('token-1');
+
+    const service = new TunnelService(
+      env,
+      repository as unknown as Repository,
+      cloudflare as unknown as CloudflareService,
+    );
+
+    // Create first tunnel
+    await service.createTunnel({
+      userId: '22222222-2222-2222-2222-222222222222',
+      port: 3000,
+      requestedSlug: 'my-app',
+    });
+
+    // Now simulate that the tunnel is stopped (findActiveTunnelBySlug returns undefined)
+    repository.findActiveTunnelBySlug.mockResolvedValue(undefined);
+
+    // Create second tunnel with same slug - should succeed
+    repository.createTunnel.mockResolvedValue({
+      id: '33333333-3333-3333-3333-333333333333',
+      slug: 'my-app',
+      hostname: 'my-app.tunnel.ripeseed.io',
+    });
+    cloudflare.createTunnel.mockResolvedValue({ id: 'cf-tunnel-2' });
+    cloudflare.createDnsRecord.mockResolvedValue('dns-id-2');
+    cloudflare.getTunnelToken.mockResolvedValue('token-2');
+
+    const result = await service.createTunnel({
+      userId: '22222222-2222-2222-2222-222222222222',
+      port: 3001,
+      requestedSlug: 'my-app',
+    });
+
+    expect(result.hostname).toBe('my-app.tunnel.ripeseed.io');
+    expect(result.cloudflaredToken).toBe('token-2');
+  });
 });
