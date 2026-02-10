@@ -48,6 +48,7 @@ This repository includes comprehensive instructions for GitHub Copilot to mainta
 - **`.github/instructions/cli.instructions.md`**: CLI-specific patterns including command structure, credential storage, cloudflared integration, and dashboard output
 - **`.github/instructions/shared.instructions.md`**: Shared package patterns for Zod schemas and contract definitions
 - **`.github/instructions/testing.instructions.md`**: Testing conventions for both unit and integration tests
+- **`.github/instructions/code-review.instructions.md`**: Code review guidelines covering security, testing, code quality, architecture, and compatibility
 
 These instructions are automatically used by GitHub Copilot when working on code in their respective paths. See the [GitHub Copilot documentation](https://docs.github.com/en/copilot/tutorials/coding-agent/get-the-best-results) for more information.
 
