@@ -7,6 +7,10 @@ type CloudflareApiResponse<T> = {
   errors?: Array<{ code: number; message: string }>;
 };
 
+type DeletionResult = 
+  | { success: true }
+  | { success: false; reason: 'active_connections' | 'error'; message?: string };
+
 export class CloudflareService {
   constructor(private readonly env: Env) {}
 
@@ -148,5 +152,47 @@ export class CloudflareService {
       },
       { allowNotFound: true },
     );
+  }
+
+  async deleteTunnelWithRetry(tunnelId: string, maxAttempts = 5): Promise<DeletionResult> {
+    if (maxAttempts < 1) {
+      throw new Error('maxAttempts must be at least 1');
+    }
+
+    const BASE_DELAY_MS = 1000;
+    const MAX_DELAY_MS = 10000;
+
+    for (let attemptNumber = 1; attemptNumber <= maxAttempts; attemptNumber += 1) {
+      try {
+        await this.request(
+          `/accounts/${this.env.CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${tunnelId}`,
+          {
+            method: 'DELETE',
+          },
+          { allowNotFound: true },
+        );
+        return { success: true };
+      } catch (error) {
+        if (!(error instanceof AppError) || error.code !== 'CLOUDFLARE_ERROR') {
+          return { success: false, reason: 'error', message: error instanceof Error ? error.message : 'Unknown error' };
+        }
+
+        const errorCode = (error.details as { errors?: Array<{ code: number }> })?.errors?.[0]?.code;
+        
+        if (errorCode === 1000) {
+          if (attemptNumber < maxAttempts) {
+            const delayMs = Math.min(BASE_DELAY_MS * Math.pow(2, attemptNumber - 1), MAX_DELAY_MS);
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            continue;
+          }
+          return { success: false, reason: 'active_connections' };
+        }
+
+        return { success: false, reason: 'error', message: error.message };
+      }
+    }
+
+    // This should be unreachable with maxAttempts >= 1, but TypeScript requires a return
+    throw new Error('Unexpected: loop completed without returning');
   }
 }

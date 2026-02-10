@@ -170,7 +170,37 @@ export class TunnelService implements TunnelServiceContract {
     }
 
     if (tunnel.cfTunnelId) {
-      await this.cloudflareService.deleteTunnel(tunnel.cfTunnelId);
+      const result = await this.cloudflareService.deleteTunnelWithRetry(tunnel.cfTunnelId);
+      if (!result.success) {
+        const cleanupReason = result.reason === 'active_connections' ? 'active_connections' : 'deletion_failed';
+        await this.repository.enqueueCleanupJob(tunnel.id, cleanupReason);
+
+        if (result.reason === 'active_connections') {
+          logger.info('Tunnel has active connections, will retry via cleanup job', {
+            tunnelId: tunnel.id,
+            cfTunnelId: tunnel.cfTunnelId,
+          });
+          // Signal to cleanup workers that the tunnel has not fully stopped yet
+          throw new AppError(
+            503,
+            'TUNNEL_STOP_PENDING_ACTIVE_CONNECTIONS',
+            'Tunnel has active connections and will be stopped once they drain.',
+          );
+        }
+
+        // For other errors, log and throw so cleanup worker retries
+        logger.error('Failed to delete tunnel from Cloudflare', {
+          tunnelId: tunnel.id,
+          cfTunnelId: tunnel.cfTunnelId,
+          reason: result.reason,
+          message: result.message,
+        });
+        throw new AppError(
+          502,
+          'TUNNEL_CLOUDFLARE_DELETION_FAILED',
+          result.message ?? 'Failed to delete tunnel from Cloudflare; cleanup will be retried.',
+        );
+      }
     }
 
     await this.repository.deleteLease(tunnel.id);

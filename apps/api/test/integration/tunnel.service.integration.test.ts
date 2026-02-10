@@ -52,6 +52,7 @@ describe('TunnelService integration behaviors', () => {
     getTunnelToken: vi.fn(),
     deleteDnsRecord: vi.fn(),
     deleteTunnel: vi.fn(),
+    deleteTunnelWithRetry: vi.fn(),
   };
 
   beforeEach(() => {
@@ -115,6 +116,7 @@ describe('TunnelService integration behaviors', () => {
       cfDnsRecordId: 'dns-id',
       cfTunnelId: 'cf-tunnel-id',
     });
+    cloudflare.deleteTunnelWithRetry.mockResolvedValue({ success: true });
 
     const service = new TunnelService(
       env,
@@ -128,7 +130,7 @@ describe('TunnelService integration behaviors', () => {
     });
 
     expect(cloudflare.deleteDnsRecord).toHaveBeenCalledWith('dns-id');
-    expect(cloudflare.deleteTunnel).toHaveBeenCalledWith('cf-tunnel-id');
+    expect(cloudflare.deleteTunnelWithRetry).toHaveBeenCalledWith('cf-tunnel-id');
     expect(repository.markTunnelStopped).toHaveBeenCalledTimes(1);
   });
 });
