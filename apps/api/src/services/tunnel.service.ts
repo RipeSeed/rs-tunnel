@@ -170,7 +170,24 @@ export class TunnelService implements TunnelServiceContract {
     }
 
     if (tunnel.cfTunnelId) {
-      await this.cloudflareService.deleteTunnel(tunnel.cfTunnelId);
+      const result = await this.cloudflareService.deleteTunnelWithRetry(tunnel.cfTunnelId);
+      if (!result.success && result.reason === 'active_connections') {
+        logger.info('Tunnel has active connections, will retry via cleanup job', {
+          tunnelId: tunnel.id,
+          cfTunnelId: tunnel.cfTunnelId,
+        });
+        await this.repository.enqueueCleanupJob(tunnel.id, 'active_connections');
+        return;
+      }
+      
+      if (!result.success) {
+        logger.error('Failed to delete tunnel from Cloudflare', {
+          tunnelId: tunnel.id,
+          cfTunnelId: tunnel.cfTunnelId,
+          reason: result.reason,
+          message: result.message,
+        });
+      }
     }
 
     await this.repository.deleteLease(tunnel.id);

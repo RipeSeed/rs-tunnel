@@ -7,6 +7,10 @@ type CloudflareApiResponse<T> = {
   errors?: Array<{ code: number; message: string }>;
 };
 
+type DeletionResult = 
+  | { success: true }
+  | { success: false; reason: 'not_found' | 'active_connections' | 'error'; message?: string };
+
 export class CloudflareService {
   constructor(private readonly env: Env) {}
 
@@ -148,5 +152,39 @@ export class CloudflareService {
       },
       { allowNotFound: true },
     );
+  }
+
+  async deleteTunnelWithRetry(tunnelId: string, maxAttempts = 5): Promise<DeletionResult> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        await this.request(
+          `/accounts/${this.env.CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${tunnelId}`,
+          {
+            method: 'DELETE',
+          },
+          { allowNotFound: true },
+        );
+        return { success: true };
+      } catch (error) {
+        if (!(error instanceof AppError) || error.code !== 'CLOUDFLARE_ERROR') {
+          return { success: false, reason: 'error', message: error instanceof Error ? error.message : 'Unknown error' };
+        }
+
+        const errorCode = (error.details as { errors?: Array<{ code: number }> })?.errors?.[0]?.code;
+        
+        if (errorCode === 1000) {
+          if (attempt < maxAttempts) {
+            const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            continue;
+          }
+          return { success: false, reason: 'active_connections' };
+        }
+
+        return { success: false, reason: 'error', message: error.message };
+      }
+    }
+
+    return { success: false, reason: 'active_connections' };
   }
 }
