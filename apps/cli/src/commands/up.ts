@@ -150,7 +150,8 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
   let closeStderrReader = () => {};
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let metricsTimer: ReturnType<typeof setInterval> | null = null;
-  let stopRemoteTunnelInProgress = false;
+  let stopRemoteTunnelPromise: Promise<void> | null = null;
+  let remoteTunnelStopped = false;
 
   const cloudflaredLogBuffer: string[] = [];
 
@@ -166,20 +167,31 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
   };
 
   const stopRemoteTunnel = async (): Promise<void> => {
-    if (stopRemoteTunnelInProgress || !tunnel) {
+    if (!tunnel || remoteTunnelStopped) {
       return;
     }
 
-    stopRemoteTunnelInProgress = true;
+    if (stopRemoteTunnelPromise) {
+      await stopRemoteTunnelPromise;
+      return;
+    }
+
     const tunnelId = tunnel.tunnelId;
 
-    try {
-      await withTokenRetry(apiClient, sessionRef, dependencies.saveSession, (accessToken) =>
-        apiClient.stopTunnel(accessToken, tunnelId),
-      );
-    } catch (error) {
-      console.error('Failed to stop tunnel cleanly:', error instanceof Error ? error.message : String(error));
-    }
+    stopRemoteTunnelPromise = (async () => {
+      try {
+        await withTokenRetry(apiClient, sessionRef, dependencies.saveSession, (accessToken) =>
+          apiClient.stopTunnel(accessToken, tunnelId),
+        );
+        remoteTunnelStopped = true;
+      } catch (error) {
+        console.error('Failed to stop tunnel cleanly:', error instanceof Error ? error.message : String(error));
+      } finally {
+        stopRemoteTunnelPromise = null;
+      }
+    })();
+
+    await stopRemoteTunnelPromise;
   };
 
   const handleCloudflaredLine = (line: string): void => {
@@ -284,7 +296,7 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
 
     closeStdoutReader();
     closeStderrReader();
-    dashboard.stop();
+    dashboard?.stop();
 
     dependencies.processRef.removeListener('SIGINT', onSigInt);
     dependencies.processRef.removeListener('SIGTERM', onSigTerm);

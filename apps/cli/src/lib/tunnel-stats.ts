@@ -41,6 +41,7 @@ export class TunnelStats {
   private openConnections = 0;
 
   private readonly latencySamples: LatencySample[] = [];
+  private sampleStartIndex = 0;
 
   updateConnections(snapshot: ProxyConnectionSnapshot): void {
     this.totalConnections = snapshot.totalConnections;
@@ -60,15 +61,20 @@ export class TunnelStats {
     this.prune(nowEpochMs);
 
     const oneMinuteCutoff = nowEpochMs - ONE_MINUTE_MS;
-    const fiveMinuteCutoff = nowEpochMs - FIVE_MINUTES_MS;
+    const durationsIn1m: number[] = [];
+    const durationsIn5m: number[] = [];
 
-    const durationsIn1m = this.latencySamples
-      .filter((sample) => sample.timestampEpochMs >= oneMinuteCutoff)
-      .map((sample) => sample.durationMs);
+    for (let i = this.sampleStartIndex; i < this.latencySamples.length; i += 1) {
+      const sample = this.latencySamples[i];
+      if (!sample) {
+        continue;
+      }
 
-    const durationsIn5m = this.latencySamples
-      .filter((sample) => sample.timestampEpochMs >= fiveMinuteCutoff)
-      .map((sample) => sample.durationMs);
+      durationsIn5m.push(sample.durationMs);
+      if (sample.timestampEpochMs >= oneMinuteCutoff) {
+        durationsIn1m.push(sample.durationMs);
+      }
+    }
 
     const sortedIn5m = [...durationsIn5m].sort((a, b) => a - b);
 
@@ -85,8 +91,22 @@ export class TunnelStats {
   private prune(nowEpochMs: number): void {
     const oldestAllowed = nowEpochMs - FIVE_MINUTES_MS;
 
-    while (this.latencySamples.length > 0 && this.latencySamples[0] && this.latencySamples[0].timestampEpochMs < oldestAllowed) {
-      this.latencySamples.shift();
+    while (this.sampleStartIndex < this.latencySamples.length) {
+      const sample = this.latencySamples[this.sampleStartIndex];
+      if (!sample || sample.timestampEpochMs >= oldestAllowed) {
+        break;
+      }
+
+      this.sampleStartIndex += 1;
+    }
+
+    const shouldCompact =
+      this.sampleStartIndex > 0 &&
+      (this.sampleStartIndex >= 1024 || this.sampleStartIndex > Math.floor(this.latencySamples.length / 2));
+
+    if (shouldCompact) {
+      this.latencySamples.splice(0, this.sampleStartIndex);
+      this.sampleStartIndex = 0;
     }
   }
 }
