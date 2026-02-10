@@ -9,7 +9,7 @@ type CloudflareApiResponse<T> = {
 
 type DeletionResult = 
   | { success: true }
-  | { success: false; reason: 'not_found' | 'active_connections' | 'error'; message?: string };
+  | { success: false; reason: 'active_connections' | 'error'; message?: string };
 
 export class CloudflareService {
   constructor(private readonly env: Env) {}
@@ -155,6 +155,10 @@ export class CloudflareService {
   }
 
   async deleteTunnelWithRetry(tunnelId: string, maxAttempts = 5): Promise<DeletionResult> {
+    if (maxAttempts < 1) {
+      throw new Error('maxAttempts must be at least 1');
+    }
+
     const BASE_DELAY_MS = 1000;
     const MAX_DELAY_MS = 10000;
 
@@ -188,6 +192,7 @@ export class CloudflareService {
       }
     }
 
-    return { success: false, reason: 'active_connections' };
+    // This should be unreachable with maxAttempts >= 1, but TypeScript requires a return
+    throw new Error('Unexpected: loop completed without returning');
   }
 }

@@ -61,7 +61,7 @@ describe('cleanup idempotency', () => {
     expect(cloudflare.deleteTunnel).not.toHaveBeenCalled();
   });
 
-  it('enqueues cleanup job when tunnel has active connections', async () => {
+  it('enqueues cleanup job and throws when tunnel has active connections', async () => {
     const repository = {
       getTunnelById: vi.fn().mockResolvedValue({
         id: '11111111-1111-1111-1111-111111111111',
@@ -88,7 +88,7 @@ describe('cleanup idempotency', () => {
       cloudflare as unknown as CloudflareService,
     );
 
-    await expect(service.stopTunnelById('11111111-1111-1111-1111-111111111111', 'cleanup')).resolves.toBeUndefined();
+    await expect(service.stopTunnelById('11111111-1111-1111-1111-111111111111', 'cleanup')).rejects.toThrow(/active connections/);
     expect(repository.markTunnelStopping).toHaveBeenCalledTimes(1);
     expect(cloudflare.deleteDnsRecord).toHaveBeenCalledTimes(1);
     expect(cloudflare.deleteTunnelWithRetry).toHaveBeenCalledTimes(1);
@@ -130,5 +130,40 @@ describe('cleanup idempotency', () => {
     expect(repository.enqueueCleanupJob).not.toHaveBeenCalled();
     expect(repository.markTunnelStopped).toHaveBeenCalledTimes(1);
     expect(repository.createAuditLog).toHaveBeenCalledTimes(1);
+  });
+
+  it('enqueues cleanup job and throws on other cloudflare errors', async () => {
+    const repository = {
+      getTunnelById: vi.fn().mockResolvedValue({
+        id: '11111111-1111-1111-1111-111111111111',
+        userId: '22222222-2222-2222-2222-222222222222',
+        status: 'active',
+        cfDnsRecordId: 'dns123',
+        cfTunnelId: 'tunnel123',
+      }),
+      markTunnelStopping: vi.fn().mockResolvedValue(undefined),
+      deleteLease: vi.fn().mockResolvedValue(undefined),
+      markTunnelStopped: vi.fn().mockResolvedValue(undefined),
+      createAuditLog: vi.fn().mockResolvedValue(undefined),
+      enqueueCleanupJob: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const cloudflare = {
+      deleteDnsRecord: vi.fn().mockResolvedValue(undefined),
+      deleteTunnelWithRetry: vi.fn().mockResolvedValue({ success: false, reason: 'error', message: 'Network error' }),
+    };
+
+    const service = new TunnelService(
+      env,
+      repository as unknown as Repository,
+      cloudflare as unknown as CloudflareService,
+    );
+
+    await expect(service.stopTunnelById('11111111-1111-1111-1111-111111111111', 'cleanup')).rejects.toThrow(/Network error/);
+    expect(repository.markTunnelStopping).toHaveBeenCalledTimes(1);
+    expect(cloudflare.deleteDnsRecord).toHaveBeenCalledTimes(1);
+    expect(cloudflare.deleteTunnelWithRetry).toHaveBeenCalledTimes(1);
+    expect(repository.enqueueCleanupJob).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111', 'deletion_failed');
+    expect(repository.markTunnelStopped).not.toHaveBeenCalled();
   });
 });
