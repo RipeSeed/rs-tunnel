@@ -27,10 +27,12 @@ program
   .command('up')
   .requiredOption('--port <port>', 'Local port to expose', (value) => Number.parseInt(value, 10))
   .option('--url <slug>', 'Optional URL slug (single label only)')
-  .action(async (options: { port: number; url?: string }) => {
+  .option('--verbose', 'Show raw cloudflared logs')
+  .action(async (options: { port: number; url?: string; verbose?: boolean }) => {
     await upCommand({
       port: options.port,
       url: options.url,
+      verbose: options.verbose,
     });
   });
 

@@ -49,6 +49,13 @@ The product is an internal tunnel platform with Cloudflare + Slack OAuth.
 - Print clear user-facing errors.
 - Retry auth-dependent calls by refreshing session on 401.
 - Keep `cloudflared` install logic cross-platform and checksum-verified.
+- `rs-tunnel up` must preserve ngrok-style runtime output:
+  - Header fields: `Account`, `Version`, `Region`, `Latency`, `Forwarding`
+  - Connections row: `ttl`, `opn`, `rt1`, `rt5`, `p50`, `p90`
+  - Request log lines under `HTTP Requests`
+- `rs-tunnel up --verbose` should include raw `cloudflared` logs in addition to dashboard output.
+- Region/latency values are best-effort and should gracefully fall back to `n/a`.
+- Connection/latency metrics in CLI output are local proxy-derived approximations.
 
 ## Build and release expectations
 
