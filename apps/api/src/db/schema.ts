@@ -80,7 +80,9 @@ export const tunnels = pgTable(
     stoppedAt: timestamp('stopped_at', { withTimezone: true }),
   },
   (table) => ({
-    hostnameIdx: uniqueIndex('tunnels_hostname_idx').on(table.hostname),
+    hostnameIdx: uniqueIndex('tunnels_hostname_idx')
+      .on(table.hostname)
+      .where(sql`status != 'stopped'`),
     tunnelUserStatusIdx: index('tunnels_user_status_idx').on(table.userId, table.status),
     tunnelSlugStatusIdx: index('tunnels_slug_status_idx').on(table.slug, table.status),
   }),
