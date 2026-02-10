@@ -155,7 +155,10 @@ export class CloudflareService {
   }
 
   async deleteTunnelWithRetry(tunnelId: string, maxAttempts = 5): Promise<DeletionResult> {
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const BASE_DELAY_MS = 1000;
+    const MAX_DELAY_MS = 10000;
+
+    for (let attemptNumber = 1; attemptNumber <= maxAttempts; attemptNumber += 1) {
       try {
         await this.request(
           `/accounts/${this.env.CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/${tunnelId}`,
@@ -173,8 +176,8 @@ export class CloudflareService {
         const errorCode = (error.details as { errors?: Array<{ code: number }> })?.errors?.[0]?.code;
         
         if (errorCode === 1000) {
-          if (attempt < maxAttempts) {
-            const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+          if (attemptNumber < maxAttempts) {
+            const delayMs = Math.min(BASE_DELAY_MS * Math.pow(2, attemptNumber - 1), MAX_DELAY_MS);
             await new Promise((resolve) => setTimeout(resolve, delayMs));
             continue;
           }
