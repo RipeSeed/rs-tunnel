@@ -6,7 +6,7 @@ import type { Env } from '../config/env.js';
 import { AppError } from '../lib/app-error.js';
 import { logger } from '../lib/logger.js';
 import { Repository } from '../db/repository.js';
-import { assertRipeseedEmail, normalizeEmail } from '../utils/email.js';
+import { assertAllowedEmail, normalizeEmail } from '../utils/email.js';
 import { createCodeChallenge } from '../utils/pkce.js';
 import { addDays } from '../utils/time.js';
 import type { AuthService as AuthServiceContract, TokenPair } from '../types.js';
@@ -39,7 +39,7 @@ export class AuthService implements AuthServiceContract {
     codeChallenge: string;
     cliCallbackUrl: string;
   }): Promise<{ authorizeUrl: string; state: string }> {
-    const email = assertRipeseedEmail(input.email);
+    const email = assertAllowedEmail(input.email, this.env.ALLOWED_EMAIL_DOMAIN);
 
     const state = randomBytes(24).toString('base64url');
     const expiresAt = new Date(Date.now() + OAUTH_SESSION_TTL_MS);
@@ -83,7 +83,7 @@ export class AuthService implements AuthServiceContract {
     const slackToken = await this.exchangeSlackCode(input.code);
     const slackProfile = await this.fetchSlackProfile(slackToken.access_token ?? '');
 
-    const email = assertRipeseedEmail(slackProfile.email ?? '');
+    const email = assertAllowedEmail(slackProfile.email ?? '', this.env.ALLOWED_EMAIL_DOMAIN);
     if (normalizeEmail(session.email) !== email) {
       throw new AppError(403, 'EMAIL_MISMATCH', 'Authenticated Slack user email does not match requested email.');
     }
@@ -95,7 +95,7 @@ export class AuthService implements AuthServiceContract {
       throw new AppError(403, 'SLACK_PROFILE_INCOMPLETE', 'Unable to read Slack team/user claims.');
     }
 
-    if (slackTeamId !== this.env.RIPSEED_SLACK_TEAM_ID) {
+    if (slackTeamId !== this.env.ALLOWED_SLACK_TEAM_ID) {
       throw new AppError(403, 'WORKSPACE_NOT_ALLOWED', 'Slack workspace is not allowed.');
     }
 

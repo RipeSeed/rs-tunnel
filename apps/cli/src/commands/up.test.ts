@@ -4,6 +4,7 @@ import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 
 import { upCommand } from './up.js';
+import { ApiClientError } from '../lib/api-client.js';
 
 function createFakeChildProcess(): EventEmitter & {
   stdout: PassThrough;
@@ -50,6 +51,282 @@ function createProcessRef() {
 }
 
 describe('upCommand', () => {
+  it('ships telemetry with sanitized paths', async () => {
+    const child = createFakeChildProcess();
+    const proxyStop = vi.fn(async () => {});
+    const dashboard = {
+      setRegion: vi.fn(),
+      setMetrics: vi.fn(),
+      addRequest: vi.fn(),
+      addCloudflaredLine: vi.fn(),
+      addMessage: vi.fn(),
+      stop: vi.fn(),
+    };
+
+    const apiClient = {
+      refreshTokens: vi.fn(),
+      createTunnel: vi.fn(async () => ({
+        tunnelId: 'tunnel-id',
+        hostname: 'demo.tunnel.example.com',
+        cloudflaredToken: 'cf-token',
+        heartbeatIntervalSec: 20 as const,
+      })),
+      stopTunnel: vi.fn(async () => {}),
+      heartbeat: vi.fn(async () => ({ expiresAt: '2026-01-01T00:00:00.000Z' })),
+      ingestTelemetry: vi.fn(async () => {}),
+    };
+
+    const { processRef } = createProcessRef();
+
+    let proxyInput: Parameters<typeof import('../lib/local-proxy.js').startLocalProxy>[0] | undefined;
+
+    const startLocalProxy = vi.fn(async (input: Parameters<typeof import('../lib/local-proxy.js').startLocalProxy>[0]) => {
+      proxyInput = input;
+      return {
+        port: 4545,
+        stop: proxyStop,
+      };
+    });
+
+    const intervalCallbacks: Array<{ ms: number; fn: () => void }> = [];
+    const setIntervalFn = vi.fn((fn: () => void, ms: number) => {
+      intervalCallbacks.push({ fn, ms });
+      return intervalCallbacks.length as unknown as NodeJS.Timeout;
+    });
+
+    const runPromise = upCommand(
+      { port: 3000, url: 'demo', verbose: false },
+      {
+        createApiClient: () => apiClient as never,
+        requireSession: vi.fn(async () => ({
+          accessToken: 'access',
+          refreshToken: 'refresh',
+          expiresAtEpochSec: 1,
+          profile: {
+            email: 'osama@example.com',
+            slackUserId: 'U1',
+            slackTeamId: 'TRIPESEED',
+          },
+        })),
+        saveSession: vi.fn(async () => {}),
+        ensureCloudflaredInstalled: vi.fn(async () => '/usr/local/bin/cloudflared'),
+        startLocalProxy,
+        createUpDashboard: vi.fn(() => dashboard),
+        getCliVersion: vi.fn(() => '0.1.0'),
+        spawn: vi.fn(() => child) as never,
+        processRef: processRef as never,
+        setInterval: setIntervalFn as never,
+        clearInterval: vi.fn(),
+      },
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    if (!proxyInput?.onRequest) {
+      throw new Error('Expected onRequest callback to be registered.');
+    }
+
+    proxyInput.onRequest({
+      startedAtEpochMs: 1700000000000,
+      method: 'GET',
+      path: '/foo/bar?token=secret',
+      statusCode: 200,
+      statusMessage: 'OK',
+      durationMs: 12.3,
+      responseBytes: 42,
+      error: false,
+      protocol: 'http',
+    });
+
+    const telemetryInterval = intervalCallbacks.find((interval) => interval.ms === 2000);
+    if (!telemetryInterval) {
+      throw new Error('Expected telemetry interval to be registered.');
+    }
+
+    telemetryInterval.fn();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(apiClient.ingestTelemetry).toHaveBeenCalledTimes(1);
+    const payload = (apiClient.ingestTelemetry as ReturnType<typeof vi.fn>).mock.calls[0]?.[2] as {
+      metrics: { requests: number; bytes: number; errors: number };
+      requests: Array<{ path: string }>;
+    };
+
+    expect(payload.metrics.requests).toBe(1);
+    expect(payload.metrics.errors).toBe(0);
+    expect(payload.metrics.bytes).toBe(42);
+    expect(payload.requests[0]?.path).toBe('/foo/bar');
+
+    child.emit('exit', 0);
+    await runPromise;
+  });
+
+  it('disables telemetry when server does not support it', async () => {
+    const child = createFakeChildProcess();
+    const dashboard = {
+      setRegion: vi.fn(),
+      setMetrics: vi.fn(),
+      addRequest: vi.fn(),
+      addCloudflaredLine: vi.fn(),
+      addMessage: vi.fn(),
+      stop: vi.fn(),
+    };
+
+    const apiClient = {
+      refreshTokens: vi.fn(),
+      createTunnel: vi.fn(async () => ({
+        tunnelId: 'tunnel-id',
+        hostname: 'demo.tunnel.example.com',
+        cloudflaredToken: 'cf-token',
+        heartbeatIntervalSec: 20 as const,
+      })),
+      stopTunnel: vi.fn(async () => {}),
+      heartbeat: vi.fn(async () => ({ expiresAt: '2026-01-01T00:00:00.000Z' })),
+      ingestTelemetry: vi.fn(async () => {
+        throw new ApiClientError(404, 'NOT_FOUND', 'missing');
+      }),
+    };
+
+    const { processRef } = createProcessRef();
+
+    const intervalCallbacks: Array<{ ms: number; fn: () => void }> = [];
+    const setIntervalFn = vi.fn((fn: () => void, ms: number) => {
+      intervalCallbacks.push({ fn, ms });
+      return intervalCallbacks.length as unknown as NodeJS.Timeout;
+    });
+
+    const clearIntervalFn = vi.fn();
+
+    const runPromise = upCommand(
+      { port: 3000, url: 'demo', verbose: false },
+      {
+        createApiClient: () => apiClient as never,
+        requireSession: vi.fn(async () => ({
+          accessToken: 'access',
+          refreshToken: 'refresh',
+          expiresAtEpochSec: 1,
+          profile: {
+            email: 'osama@example.com',
+            slackUserId: 'U1',
+            slackTeamId: 'TRIPESEED',
+          },
+        })),
+        saveSession: vi.fn(async () => {}),
+        ensureCloudflaredInstalled: vi.fn(async () => '/usr/local/bin/cloudflared'),
+        startLocalProxy: vi.fn(async () => ({
+          port: 4545,
+          stop: vi.fn(async () => {}),
+        })),
+        createUpDashboard: vi.fn(() => dashboard),
+        getCliVersion: vi.fn(() => '0.1.0'),
+        spawn: vi.fn(() => child) as never,
+        processRef: processRef as never,
+        setInterval: setIntervalFn as never,
+        clearInterval: clearIntervalFn as never,
+      },
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const telemetryInterval = intervalCallbacks.find((interval) => interval.ms === 2000);
+    if (!telemetryInterval) {
+      throw new Error('Expected telemetry interval to be registered.');
+    }
+
+    telemetryInterval.fn();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(clearIntervalFn).toHaveBeenCalled();
+    expect(dashboard.addMessage).toHaveBeenCalledWith(expect.stringMatching(/telemetry disabled/i));
+
+    child.emit('exit', 0);
+    await runPromise;
+  });
+
+  it('prints heartbeat API status and code when heartbeat fails', async () => {
+    const child = createFakeChildProcess();
+    const dashboard = {
+      setRegion: vi.fn(),
+      setMetrics: vi.fn(),
+      addRequest: vi.fn(),
+      addCloudflaredLine: vi.fn(),
+      addMessage: vi.fn(),
+      stop: vi.fn(),
+    };
+
+    const apiClient = {
+      refreshTokens: vi.fn(),
+      createTunnel: vi.fn(async () => ({
+        tunnelId: 'tunnel-id',
+        hostname: 'demo.tunnel.example.com',
+        cloudflaredToken: 'cf-token',
+        heartbeatIntervalSec: 20 as const,
+      })),
+      stopTunnel: vi.fn(async () => {}),
+      heartbeat: vi.fn(async () => {
+        throw new ApiClientError(500, 'INTERNAL_ERROR', 'Unexpected server error');
+      }),
+      ingestTelemetry: vi.fn(async () => {}),
+    };
+
+    const { processRef } = createProcessRef();
+
+    const intervalCallbacks: Array<{ ms: number; fn: () => void }> = [];
+    const setIntervalFn = vi.fn((fn: () => void, ms: number) => {
+      intervalCallbacks.push({ fn, ms });
+      return intervalCallbacks.length as unknown as NodeJS.Timeout;
+    });
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const runPromise = upCommand(
+      { port: 3000, url: 'demo', verbose: false },
+      {
+        createApiClient: () => apiClient as never,
+        requireSession: vi.fn(async () => ({
+          accessToken: 'access',
+          refreshToken: 'refresh',
+          expiresAtEpochSec: 1,
+          profile: {
+            email: 'osama@example.com',
+            slackUserId: 'U1',
+            slackTeamId: 'TRIPESEED',
+          },
+        })),
+        saveSession: vi.fn(async () => {}),
+        ensureCloudflaredInstalled: vi.fn(async () => '/usr/local/bin/cloudflared'),
+        startLocalProxy: vi.fn(async () => ({
+          port: 4545,
+          stop: vi.fn(async () => {}),
+        })),
+        createUpDashboard: vi.fn(() => dashboard),
+        getCliVersion: vi.fn(() => '0.1.0'),
+        spawn: vi.fn(() => child) as never,
+        processRef: processRef as never,
+        setInterval: setIntervalFn as never,
+        clearInterval: vi.fn(),
+      },
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const heartbeatInterval = intervalCallbacks.find((interval) => interval.ms === 20_000);
+    if (!heartbeatInterval) {
+      throw new Error('Expected heartbeat interval to be registered.');
+    }
+
+    heartbeatInterval.fn();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Heartbeat failed (status=500, code=INTERNAL_ERROR): Unexpected server error'),
+    );
+
+    errorSpy.mockRestore();
+    child.emit('exit', 0);
+    await runPromise;
+  });
+
   it('creates tunnel using local proxy port and initializes dashboard fields', async () => {
     const child = createFakeChildProcess();
     const proxyStop = vi.fn(async () => {});
@@ -66,7 +343,7 @@ describe('upCommand', () => {
       refreshTokens: vi.fn(),
       createTunnel: vi.fn(async () => ({
         tunnelId: 'tunnel-id',
-        hostname: 'demo.tunnel.ripeseed.io',
+        hostname: 'demo.tunnel.example.com',
         cloudflaredToken: 'cf-token',
         heartbeatIntervalSec: 20 as const,
       })),
@@ -98,7 +375,7 @@ describe('upCommand', () => {
           refreshToken: 'refresh',
           expiresAtEpochSec: 1,
           profile: {
-            email: 'osama@ripeseed.io',
+            email: 'osama@example.com',
             slackUserId: 'U1',
             slackTeamId: 'TRIPESEED',
           },
@@ -129,9 +406,9 @@ describe('upCommand', () => {
       }),
     );
     expect(createUpDashboard).toHaveBeenCalledWith({
-      account: 'osama@ripeseed.io',
+      account: 'osama@example.com',
       version: '0.1.0',
-      forwarding: 'https://demo.tunnel.ripeseed.io -> http://localhost:3000',
+      forwarding: 'https://demo.tunnel.example.com -> http://localhost:3000',
       verbose: false,
     });
 
@@ -158,7 +435,7 @@ describe('upCommand', () => {
         refreshTokens: vi.fn(),
         createTunnel: vi.fn(async () => ({
           tunnelId: 'tunnel-id',
-          hostname: 'demo.tunnel.ripeseed.io',
+          hostname: 'demo.tunnel.example.com',
           cloudflaredToken: 'cf-token',
           heartbeatIntervalSec: 20 as const,
         })),
@@ -187,7 +464,7 @@ describe('upCommand', () => {
             refreshToken: 'refresh',
             expiresAtEpochSec: 1,
             profile: {
-              email: 'osama@ripeseed.io',
+              email: 'osama@example.com',
               slackUserId: 'U1',
               slackTeamId: 'TRIPESEED',
             },
@@ -232,7 +509,7 @@ describe('upCommand', () => {
       refreshTokens: vi.fn(),
       createTunnel: vi.fn(async () => ({
         tunnelId: 'tunnel-id',
-        hostname: 'demo.tunnel.ripeseed.io',
+        hostname: 'demo.tunnel.example.com',
         cloudflaredToken: 'cf-token',
         heartbeatIntervalSec: 20 as const,
       })),
@@ -258,7 +535,7 @@ describe('upCommand', () => {
           refreshToken: 'refresh',
           expiresAtEpochSec: 1,
           profile: {
-            email: 'osama@ripeseed.io',
+            email: 'osama@example.com',
             slackUserId: 'U1',
             slackTeamId: 'TRIPESEED',
           },

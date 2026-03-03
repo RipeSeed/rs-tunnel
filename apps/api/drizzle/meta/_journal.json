@@ -15,6 +15,13 @@
       "when": 1770715610320,
       "tag": "0001_allow_slug_reuse",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1771147724997,
+      "tag": "0002_telemetry",
+      "breakpoints": true
     }
   ]
 }

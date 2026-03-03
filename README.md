@@ -1,64 +1,45 @@
 # rs-tunnel
 
-Internal Ripeseed tunnel platform backed by Cloudflare. It provides an installable CLI for team members and an internal API that controls identity, tunnel creation, and DNS cleanup.
+`rs-tunnel` is a Cloudflare tunnel platform with:
 
-## What this project does
+- CLI: `@ripeseed/rs-tunnel`
+- API: `@ripeseed/api`
+- Shared contracts: `@ripeseed/shared`
 
-- Exposes local HTTP services at `https://<slug>.tunnel.ripeseed.io`
-- Authenticates users via Slack OAuth + `@ripeseed.io` domain check
-- Limits each user to 5 active tunnels
-- Creates and deletes Cloudflare DNS records automatically
-- Cleans stale tunnels when the client stops heartbeating
+It creates secure public hostnames for localhost services, enforces auth policy, manages Cloudflare tunnel + DNS lifecycle, and cleans stale sessions.
+
+## What it does
+
+- Exposes local HTTP services at `https://<slug>.<base-domain>`
+- Authenticates users through Slack OpenID
+- Enforces max active tunnels per user (default: `5`)
+- Creates/deletes DNS records with tunnel lifecycle
+- Reaps stale leases when clients stop heartbeating
 
 ## Architecture
 
-- CLI package: `@ripeseed/rs-tunnel`
-- API service: `@ripeseed/api` (Fastify + Postgres + Drizzle)
-- Shared package: `@ripeseed/shared` (Zod schemas + contracts)
-- Domain: `*.tunnel.ripeseed.io`
-- API endpoint: `https://api-tunnel.internal.ripeseed.io`
+- `apps/api`: Fastify API + Drizzle + Postgres + cleanup worker
+- `apps/cli`: CLI (`login`, `up`, `list`, `stop`, `logout`, `doctor`)
+- `packages/shared`: shared Zod schemas/contracts
+- `packages/config`: shared lint/format/TypeScript config
 
 High-level flow:
 
-1. `rs-tunnel login --email user@ripeseed.io`
-2. CLI opens Slack OAuth via API
-3. API verifies email + workspace and issues tokens
+1. `rs-tunnel login --email user@example.com`
+2. CLI starts OAuth through API
+3. API verifies email domain + Slack workspace and issues short-lived tokens
 4. `rs-tunnel up --port 3000 [--url my-app]`
 5. API creates Cloudflare tunnel + DNS
-6. CLI starts a local proxy, runs `cloudflared`, renders an ngrok-style runtime dashboard, and heartbeats every 20s
-7. `rs-tunnel stop ...` deletes DNS and tunnel
-
-## Repository layout
-
-- `apps/api`: API source, routes, services, migrations, tests
-- `apps/cli`: CLI source and command implementations
-- `packages/shared`: cross-app contracts/types
-- `packages/config`: shared lint/format/ts config
-- `.github/workflows`: CI + release pipelines
-- `.github/copilot-instructions.md`: Repository-wide coding guidelines for GitHub Copilot
-- `.github/instructions/`: Path-specific Copilot instructions for different parts of the codebase
-- `AGENTS.md`: Operational guide for engineers and AI coding agents
-
-## GitHub Copilot Instructions
-
-This repository includes comprehensive instructions for GitHub Copilot to maintain code quality and consistency:
-
-- **`.github/copilot-instructions.md`**: Global coding standards, tech stack conventions, and behavioral constraints that apply across the entire repository
-- **`.github/instructions/api.instructions.md`**: API-specific patterns including service layer, Drizzle ORM, route handlers, and background workers
-- **`.github/instructions/cli.instructions.md`**: CLI-specific patterns including command structure, credential storage, cloudflared integration, and dashboard output
-- **`.github/instructions/shared.instructions.md`**: Shared package patterns for Zod schemas and contract definitions
-- **`.github/instructions/testing.instructions.md`**: Testing conventions for both unit and integration tests
-- **`.github/instructions/code-review.instructions.md`**: Code review guidelines covering security, testing, code quality, architecture, and compatibility
-
-These instructions are automatically used by GitHub Copilot when working on code in their respective paths. See the [GitHub Copilot documentation](https://docs.github.com/en/copilot/tutorials/coding-agent/get-the-best-results) for more information.
+6. CLI runs local reverse proxy + `cloudflared` and heartbeats every 20 seconds
+7. `rs-tunnel stop ...` removes DNS and tunnel
 
 ## Prerequisites
 
 - Node.js 20+
-- pnpm 10 (from `packageManager`)
+- pnpm 10
 - Docker (for local Postgres)
 - Slack app credentials
-- Cloudflare account + zone/token
+- Cloudflare account/token with tunnel + DNS permissions
 
 ## Environment variables
 
@@ -68,41 +49,47 @@ Create `.env` in repo root or `apps/api/.env`.
 
 - `API_BASE_URL`
   - Local: `http://localhost:8080`
-  - Prod: `https://api-tunnel.internal.ripeseed.io`
-- `PORT` (default `8080`)
-- `DATABASE_URL` (Postgres connection string)
+  - Deployments: your public API base URL
+- `PORT` (default: `8080`)
+- `DATABASE_URL`
 - `JWT_SECRET`
 - `REFRESH_TOKEN_SECRET`
+
+### Access policy
+
+- `ALLOWED_EMAIL_DOMAIN` (default: `@example.com`)
+- `ALLOWED_SLACK_TEAM_ID` (required)
+
+Compatibility fallback:
+
+- `RIPSEED_SLACK_TEAM_ID` is still accepted as a fallback for `ALLOWED_SLACK_TEAM_ID`
 
 ### Slack
 
 - `SLACK_CLIENT_ID`
 - `SLACK_CLIENT_SECRET`
-- `SLACK_REDIRECT_URI`
-  - Local example: `http://localhost:8080/v1/auth/slack/callback`
-  - Prod example: `https://api-tunnel.internal.ripeseed.io/v1/auth/slack/callback`
-- `RIPSEED_SLACK_TEAM_ID`
+- `SLACK_REDIRECT_URI` (example: `http://localhost:8080/v1/auth/slack/callback`)
 
 ### Cloudflare
 
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_ZONE_ID`
 - `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_BASE_DOMAIN` (default `tunnel.ripeseed.io`)
+- `CLOUDFLARE_BASE_DOMAIN` (default: `tunnel.example.com`)
 
 ### Behavior controls
 
-- `JWT_ACCESS_TTL_MINUTES` (default `15`)
-- `REFRESH_TTL_DAYS` (default `30`)
-- `MAX_ACTIVE_TUNNELS` (default `5`)
-- `HEARTBEAT_INTERVAL_SEC` (default `20`)
-- `LEASE_TIMEOUT_SEC` (default `60`)
-- `REAPER_INTERVAL_SEC` (default `30`)
+- `JWT_ACCESS_TTL_MINUTES` (default: `15`)
+- `REFRESH_TTL_DAYS` (default: `30`)
+- `MAX_ACTIVE_TUNNELS` (default: `5`)
+- `HEARTBEAT_INTERVAL_SEC` (default: `20`)
+- `LEASE_TIMEOUT_SEC` (default: `60`)
+- `REAPER_INTERVAL_SEC` (default: `30`)
 
-### CLI override
+### CLI
 
-- `RS_TUNNEL_API_BASE_URL`
-  - Use `http://localhost:8080` for local dev
+- `RS_TUNNEL_API_URL` (recommended global API URL override, default: `http://localhost:8080`)
+- `RS_TUNNEL_API_BASE_URL` (legacy alias for backward compatibility)
 
 ## Local development
 
@@ -130,26 +117,19 @@ pnpm --filter @ripeseed/api db:migrate
 pnpm --filter @ripeseed/api dev
 ```
 
-5. In a new terminal, use CLI against local API:
+5. Run CLI against local API:
 
 ```bash
-export RS_TUNNEL_API_BASE_URL=http://localhost:8080
+export RS_TUNNEL_API_URL=http://localhost:8080
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts doctor
-pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts login --email you@ripeseed.io
+pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts login --email you@example.com
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts up --port 3000 --url my-app
-pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts up --port 3000 --verbose
-```
-
-6. Stop tunnel:
-
-```bash
-pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts stop my-app.tunnel.ripeseed.io
 ```
 
 ## CLI commands
 
 ```bash
-rs-tunnel login --email you@ripeseed.io
+rs-tunnel login --email you@example.com
 rs-tunnel up --port 3000
 rs-tunnel up --port 3000 --url my-app
 rs-tunnel up --port 3000 --verbose
@@ -159,21 +139,34 @@ rs-tunnel logout
 rs-tunnel doctor
 ```
 
-## `up` runtime output
+### Self-hosted API Domain (Infisical-style)
 
-`rs-tunnel up` renders an ngrok-style terminal dashboard while the tunnel is active.
+The CLI supports command-level `--domain` overrides, similar to Infisical:
 
-- Session header:
-  - `Account` (email from current session)
-  - `Version` (`rs-tunnel` CLI version)
-  - `Region` (best effort from `cloudflared`, else `n/a`)
-  - `Latency` (proxy-derived rolling latency, else `n/a`)
-  - `Forwarding` (`https://<slug>.tunnel.ripeseed.io -> http://localhost:<port>`)
-- Connections row:
-  - `ttl`, `opn`, `rt1`, `rt5`, `p50`, `p90` from local proxy observations
-- HTTP request stream:
-  - Example: `11:55:23.609 PKT GET /favicon.ico               404 Not Found`
-- `--verbose` additionally prints raw `cloudflared` lines in the request stream.
+```bash
+rs-tunnel login --email you@example.com --domain https://api.your-company.com
+rs-tunnel up --port 3000 --domain https://api.your-company.com
+```
+
+Important:
+
+- `--domain` applies immediately to the current command and is also saved locally for future commands.
+- On first run (if no env/domain is configured), CLI prompts for the API domain and saves it to `~/.rs-tunnel/config.json`.
+- For global shell-level config, set `RS_TUNNEL_API_URL`.
+
+## Runtime dashboard (`up`)
+
+`rs-tunnel up` renders an ngrok-style dashboard with:
+
+- Header: `Account`, `Version`, `Region`, `Latency`, `Forwarding`
+- Connections row: `ttl`, `opn`, `rt1`, `rt5`, `p50`, `p90`
+- Live HTTP request stream
+- `--verbose`: includes raw `cloudflared` output in the stream
+
+Notes:
+
+- Region/latency are best-effort and can show `n/a`
+- Metrics are proxy-derived approximations, not Cloudflare-native telemetry
 
 ## Quality checks
 
@@ -186,45 +179,24 @@ pnpm test
 pnpm build
 ```
 
-## Docker API run
+## Release / publishing
 
-To run API + Postgres in Compose:
+Release is tag-driven (`v*.*.*`) via `.github/workflows/release.yml`.
 
-```bash
-docker compose up --build
-```
+Publish order:
 
-Note:
+1. `@ripeseed/shared`
+2. `@ripeseed/rs-tunnel`
 
-- `docker-compose.yml` is intentionally versionless (Compose V2 format).
-- Ensure all required env vars are exported or in `.env` before `up`.
+Registry target: npmjs (`https://registry.npmjs.org`).
 
-## Publishing to GitHub Packages
+Required GitHub Actions secret:
 
-This repo publishes two packages:
+- `NPM_TOKEN` (token with publish rights for the package scope)
 
-- `@ripeseed/shared`
-- `@ripeseed/rs-tunnel`
-
-Release is tag-driven via `.github/workflows/release.yml`.
-
-### Release flow
-
-1. Commit and push changes.
-2. Create annotated tag:
+Install example:
 
 ```bash
-git tag -a v0.1.0 -m "Initial release"
-git push origin v0.1.0
-```
-
-3. Workflow publishes `@ripeseed/shared` first, then `@ripeseed/rs-tunnel`.
-
-### Consumer install
-
-```bash
-npm config set @ripeseed:registry https://npm.pkg.github.com
-npm config set //npm.pkg.github.com/:_authToken <GITHUB_TOKEN_WITH_READ_PACKAGES>
 npm i -g @ripeseed/rs-tunnel
 ```
 
@@ -232,37 +204,28 @@ npm i -g @ripeseed/rs-tunnel
 
 ### `Cannot find module '@ripeseed/shared'`
 
-Cause: shared package not built/published first.
-
-Fix:
-
-- Build shared before dependent packages.
-- Keep release workflow order: publish shared, then CLI.
+Build/publish shared before dependent packages.
 
 ### `Can't find meta/_journal.json` during migrate
 
-Cause: Drizzle migration metadata missing.
-
-Fix: ensure `apps/api/drizzle/meta/_journal.json` exists.
+Ensure `apps/api/drizzle/meta/_journal.json` exists.
 
 ### `client password must be a string`
 
-Cause: bad or unloaded `DATABASE_URL`.
-
-Fix: validate `.env` loading and full connection string.
+Verify `DATABASE_URL` is loaded and complete.
 
 ### Slack OAuth callback fails
 
-Cause: redirect URI mismatch.
+Ensure `SLACK_REDIRECT_URI` exactly matches Slack app configuration.
 
-Fix: `SLACK_REDIRECT_URI` must exactly match app config and environment.
+### CLI tests fail with `listen EPERM`
 
-### CLI tests fail with `listen EPERM` (local proxy tests)
+`apps/cli/src/lib/local-proxy.test.ts` requires local socket bind permissions.
 
-Cause: sandboxed or restricted environments can block localhost bind/listen calls used by proxy tests.
+## Contributing
 
-Fix: run `pnpm --filter @ripeseed/rs-tunnel test` in a normal local shell, or with approved elevated permissions in sandboxed tooling.
+See [CONTRIBUTING.md](./CONTRIBUTING.md), [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md), and [SECURITY.md](./SECURITY.md).
 
 ## License
 
-Internal Ripeseed project (private usage).
+[MIT](./LICENSE)

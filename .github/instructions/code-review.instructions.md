@@ -11,7 +11,7 @@ These instructions guide code reviews for pull requests in the rs-tunnel reposit
 - [ ] Validate that session tokens are stored securely (keytar or encrypted file in CLI)
 
 ### Authentication and Authorization
-- [ ] Verify `@ripeseed.io` email domain enforcement is maintained
+- [ ] Verify configured email domain enforcement (`ALLOWED_EMAIL_DOMAIN`) is maintained
 - [ ] Check Slack workspace team ID validation is present
 - [ ] Ensure authenticated routes use `{ preHandler: app.authenticate }`
 - [ ] Validate user quota enforcement (max 5 active tunnels per user)

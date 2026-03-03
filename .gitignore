@@ -5,6 +5,7 @@ node_modules
 !.env.example
 coverage
 dist
+.next
 .DS_Store
 .vscode
 *.log

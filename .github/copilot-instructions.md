@@ -10,7 +10,7 @@ This is a TypeScript monorepo (`pnpm` + `turbo`) with:
 - CLI: `apps/cli`
 - Shared contracts: `packages/shared`
 
-The product is an internal tunnel platform with Cloudflare + Slack OAuth.
+The product is a self-hostable tunnel platform with Cloudflare + Slack OAuth.
 
 ## Hard requirements
 
@@ -22,8 +22,8 @@ The product is an internal tunnel platform with Cloudflare + Slack OAuth.
 
 ## Behavior constraints
 
-- Only `@ripeseed.io` users are allowed.
-- Slack workspace must match configured team ID.
+- Only emails matching configured `ALLOWED_EMAIL_DOMAIN` are allowed.
+- Slack workspace must match configured `ALLOWED_SLACK_TEAM_ID`.
 - Slugs must be single-label only (no nested domains).
 - Max active tunnels per user is 5.
 - Stopping tunnel must remove DNS and Cloudflare tunnel.

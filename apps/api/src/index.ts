@@ -6,6 +6,7 @@ import { buildApp } from './app.js';
 import { AuthService } from './services/auth.service.js';
 import { CleanupService } from './services/cleanup.service.js';
 import { CloudflareService } from './services/cloudflare.service.js';
+import { TelemetryService } from './services/telemetry.service.js';
 import { TokenService } from './services/token.service.js';
 import { TunnelService } from './services/tunnel.service.js';
 import { ReaperWorker } from './workers/reaper.worker.js';
@@ -15,12 +16,14 @@ async function start(): Promise<void> {
   const cloudflareService = new CloudflareService(env);
   const tunnelService = new TunnelService(env, repository, cloudflareService);
   const authService = new AuthService(env, repository, tokenService);
+  const telemetryService = new TelemetryService(repository);
   const cleanupService = new CleanupService(repository, tunnelService);
 
   const app = buildApp({
     env,
     services: {
       authService,
+      telemetryService,
       tunnelService,
       tokenService,
     },

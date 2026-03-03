@@ -25,7 +25,7 @@ async function refreshSession(apiClient: ApiClient, session: StoredSession): Pro
 export async function requireSession(apiClient: ApiClient): Promise<StoredSession> {
   const session = await loadSession();
   if (!session) {
-    throw new Error('Not logged in. Run: rs-tunnel login --email <you@ripeseed.io>');
+    throw new Error('Not logged in. Run: rs-tunnel login --email <you@example.com>');
   }
 
   if (isExpired(session)) {

@@ -2,6 +2,17 @@
   "name": "@ripeseed/api",
   "version": "0.1.2",
   "private": true,
+  "description": "Fastify API for rs-tunnel authentication, Cloudflare tunnel lifecycle, and DNS management.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RipeSeed/rs-tunnel.git",
+    "directory": "apps/api"
+  },
+  "bugs": {
+    "url": "https://github.com/RipeSeed/rs-tunnel/issues"
+  },
+  "homepage": "https://github.com/RipeSeed/rs-tunnel/tree/main/apps/api",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

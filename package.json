@@ -2,7 +2,16 @@
   "name": "rs-tunnel",
   "version": "0.1.1",
   "private": true,
-  "description": "Ripeseed internal Cloudflare tunnel platform",
+  "description": "Open-source Cloudflare tunnel platform monorepo (API, CLI, and shared contracts).",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RipeSeed/rs-tunnel.git"
+  },
+  "bugs": {
+    "url": "https://github.com/RipeSeed/rs-tunnel/issues"
+  },
+  "homepage": "https://github.com/RipeSeed/rs-tunnel#readme",
   "packageManager": "pnpm@10.0.0",
   "engines": {
     "node": ">=20"

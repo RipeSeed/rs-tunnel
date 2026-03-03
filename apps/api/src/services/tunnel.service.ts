@@ -5,7 +5,7 @@ import { type DbTunnel } from '../db/schema.js';
 import { createLeaseExpiry } from '../utils/lease.js';
 import { generateRandomSlug, validateRequestedSlug } from '../utils/slug.js';
 import type { Env } from '../config/env.js';
-import type { TunnelService as TunnelServiceContract, TunnelSummary } from '../types.js';
+import type { TunnelLeaseSummary, TunnelService as TunnelServiceContract, TunnelSummary } from '../types.js';
 import { CloudflareService } from './cloudflare.service.js';
 import { assertWithinTunnelLimit } from './quota.js';
 
@@ -110,17 +110,30 @@ export class TunnelService implements TunnelServiceContract {
     }
   }
 
-  async listTunnels(userId: string): Promise<TunnelSummary[]> {
-    const rows = await this.repository.listUserTunnels(userId);
+  async listTunnels(userId: string, options?: { includeInactive?: boolean }): Promise<TunnelSummary[]> {
+    const includeInactive = options?.includeInactive ?? false;
+    const rows = await this.repository.listUserTunnelsWithLease(userId, { includeInactive });
 
-    return rows.map((row) => ({
-      id: row.id,
-      hostname: row.hostname,
-      slug: row.slug,
-      status: row.status,
-      requestedPort: row.requestedPort,
-      createdAt: row.createdAt.toISOString(),
-    }));
+    return rows.map(({ tunnel, lease }) => {
+      const leaseSummary: TunnelLeaseSummary = lease
+        ? {
+            lastHeartbeatAt: lease.lastHeartbeatAt.toISOString(),
+            expiresAt: lease.expiresAt.toISOString(),
+          }
+        : null;
+
+      return {
+        id: tunnel.id,
+        hostname: tunnel.hostname,
+        slug: tunnel.slug,
+        status: tunnel.status,
+        requestedPort: tunnel.requestedPort,
+        createdAt: tunnel.createdAt.toISOString(),
+        lease: leaseSummary,
+        stoppedAt: tunnel.stoppedAt ? tunnel.stoppedAt.toISOString() : null,
+        lastError: tunnel.lastError ?? null,
+      };
+    });
   }
 
   async heartbeat(input: { userId: string; tunnelIdentifier: string }): Promise<{ expiresAt: string }> {

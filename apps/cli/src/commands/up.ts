@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 
 import type { StoredSession } from '../types.js';
-import { cliConfig } from '../config.js';
+import { getCliConfig } from '../config.js';
 import { ApiClient, ApiClientError } from '../lib/api-client.js';
 import { ensureCloudflaredInstalled } from '../lib/cloudflared.js';
 import { startLocalProxy, type LocalProxy } from '../lib/local-proxy.js';
@@ -36,6 +36,14 @@ type UpCommandDependencies = {
   setInterval: typeof setInterval;
   clearInterval: typeof clearInterval;
 };
+
+function formatApiClientError(context: string, error: unknown): string {
+  if (error instanceof ApiClientError) {
+    return `${context} (status=${error.status}, code=${error.code}): ${error.message}`;
+  }
+
+  return `${context}: ${error instanceof Error ? error.message : String(error)}`;
+}
 
 const defaultDependencies: UpCommandDependencies = {
   createApiClient: (baseUrl) => new ApiClient(baseUrl),
@@ -100,6 +108,13 @@ export function extractRegionFromCloudflaredLine(line: string): string | null {
   return null;
 }
 
+export function sanitizeTelemetryPath(rawPath: string): string {
+  const trimmed = rawPath.trim();
+  const base = trimmed.split('?')[0]?.split('#')[0] ?? '';
+  const normalized = base.length === 0 ? '/' : base.startsWith('/') ? base : `/${base}`;
+  return normalized.slice(0, 256);
+}
+
 function attachLineReader(
   stream: NodeJS.ReadableStream | null | undefined,
   onLine: (line: string) => void,
@@ -134,7 +149,8 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
     throw new Error('Port must be an integer between 1 and 65535.');
   }
 
-  const apiClient = dependencies.createApiClient(cliConfig.apiBaseUrl);
+  const config = getCliConfig();
+  const apiClient = dependencies.createApiClient(config.apiBaseUrl);
   const sessionRef = {
     value: await dependencies.requireSession(apiClient),
   };
@@ -150,10 +166,27 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
   let closeStderrReader = () => {};
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let metricsTimer: ReturnType<typeof setInterval> | null = null;
+  let telemetryTimer: ReturnType<typeof setInterval> | null = null;
   let stopRemoteTunnelPromise: Promise<void> | null = null;
   let remoteTunnelStopped = false;
 
   const cloudflaredLogBuffer: string[] = [];
+  let currentRegion: string | null = null;
+
+  type TelemetryRequestEvent = {
+    startedAtEpochMs: number;
+    method: string;
+    path: string;
+    statusCode: number;
+    durationMs: number;
+    responseBytes: number | null;
+    error: boolean;
+    protocol: 'http' | 'ws';
+  };
+
+  const telemetryQueue: TelemetryRequestEvent[] = [];
+  let telemetryDisabled = false;
+  let lastTelemetryErrorAt = 0;
 
   const rememberCloudflaredLine = (line: string): void => {
     if (line.trim().length === 0) {
@@ -199,6 +232,7 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
 
     const region = extractRegionFromCloudflaredLine(line);
     if (region && dashboard) {
+      currentRegion = region;
       dashboard.setRegion(region);
     }
 
@@ -223,6 +257,25 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
       onRequest: (event) => {
         stats.recordRequest(event);
         dashboard?.addRequest(event);
+
+        if (telemetryDisabled) {
+          return;
+        }
+
+        telemetryQueue.push({
+          startedAtEpochMs: event.startedAtEpochMs,
+          method: event.method.toUpperCase().slice(0, 16),
+          path: sanitizeTelemetryPath(event.path),
+          statusCode: event.statusCode,
+          durationMs: event.durationMs,
+          responseBytes: event.responseBytes ?? null,
+          error: event.error,
+          protocol: event.protocol,
+        });
+
+        if (telemetryQueue.length > 2000) {
+          telemetryQueue.shift();
+        }
       },
       onConnectionChange: (connectionSnapshot) => {
         stats.updateConnections(connectionSnapshot);
@@ -267,9 +320,60 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
       void withTokenRetry(apiClient, sessionRef, dependencies.saveSession, (accessToken) =>
         apiClient.heartbeat(accessToken, tunnelId),
       ).catch((error) => {
-        console.error('Heartbeat failed:', error instanceof Error ? error.message : String(error));
+        console.error(formatApiClientError('Heartbeat failed', error));
       });
     }, tunnel.heartbeatIntervalSec * 1000);
+
+    telemetryTimer = dependencies.setInterval(() => {
+      const snapshot = stats.getSnapshot();
+      const drained = telemetryQueue.splice(0, 200);
+
+      let errors = 0;
+      let bytes = 0;
+      for (const event of drained) {
+        if (event.error) {
+          errors += 1;
+        }
+
+        bytes += event.responseBytes ?? 0;
+      }
+
+      const payload = {
+        region: currentRegion,
+        metrics: {
+          ttl: snapshot.ttl,
+          opn: snapshot.opn,
+          rt1Ms: snapshot.rt1Ms,
+          rt5Ms: snapshot.rt5Ms,
+          p50Ms: snapshot.p50Ms,
+          p90Ms: snapshot.p90Ms,
+          requests: drained.length,
+          errors,
+          bytes,
+        },
+        requests: drained,
+      };
+
+      void withTokenRetry(apiClient, sessionRef, dependencies.saveSession, (accessToken) =>
+        apiClient.ingestTelemetry(accessToken, tunnelId, payload),
+      ).catch((error) => {
+        if (error instanceof ApiClientError && (error.status === 404 || error.status === 405)) {
+          telemetryDisabled = true;
+          if (telemetryTimer) {
+            dependencies.clearInterval(telemetryTimer);
+            telemetryTimer = null;
+          }
+          dashboard?.addMessage('Portal telemetry disabled (server does not support it).');
+          return;
+        }
+
+        const now = Date.now();
+        if (now - lastTelemetryErrorAt >= 30_000) {
+          lastTelemetryErrorAt = now;
+          console.error('Telemetry upload failed:', error instanceof Error ? error.message : String(error));
+        }
+      });
+    }, 2_000);
 
     dependencies.processRef.once('SIGINT', onSigInt);
     dependencies.processRef.once('SIGTERM', onSigTerm);
@@ -294,6 +398,10 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
       dependencies.clearInterval(metricsTimer);
     }
 
+    if (telemetryTimer) {
+      dependencies.clearInterval(telemetryTimer);
+    }
+
     closeStdoutReader();
     closeStderrReader();
     dashboard?.stop();
@@ -312,6 +420,10 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
 
     if (metricsTimer) {
       dependencies.clearInterval(metricsTimer);
+    }
+
+    if (telemetryTimer) {
+      dependencies.clearInterval(telemetryTimer);
     }
 
     closeStdoutReader();

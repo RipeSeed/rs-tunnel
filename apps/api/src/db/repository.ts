@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 
 import { db } from './client.js';
 import {
@@ -7,11 +7,18 @@ import {
   oauthSessions,
   refreshTokens,
   touchUpdatedAtSql,
+  tunnelLiveMetrics,
+  tunnelMetrics,
   tunnelLeases,
+  tunnelRequests,
   tunnels,
   users,
   type DbCleanupJob,
   type DbOAuthSession,
+  type DbTunnelLease,
+  type DbTunnelLiveMetric,
+  type DbTunnelMetric,
+  type DbTunnelRequest,
   type DbTunnel,
   type DbUser,
 } from './schema.js';
@@ -271,12 +278,47 @@ export class Repository {
     return tunnel;
   }
 
+  async findTunnelForUserAnyStatus(userId: string, tunnelIdentifier: string): Promise<DbTunnel | undefined> {
+    const [tunnel] = await db
+      .select()
+      .from(tunnels)
+      .where(
+        and(
+          eq(tunnels.userId, userId),
+          or(eq(tunnels.id, tunnelIdentifier), eq(tunnels.hostname, tunnelIdentifier)),
+        ),
+      );
+    return tunnel;
+  }
+
   async listUserTunnels(userId: string): Promise<DbTunnel[]> {
     return db
       .select()
       .from(tunnels)
       .where(and(eq(tunnels.userId, userId), inArray(tunnels.status, ['active', 'stopping'])))
       .orderBy(asc(tunnels.createdAt));
+  }
+
+  async listUserTunnelsWithLease(
+    userId: string,
+    options: { includeInactive: boolean },
+  ): Promise<Array<{ tunnel: DbTunnel; lease: DbTunnelLease | null }>> {
+    const statuses = options.includeInactive ? null : (['active', 'stopping'] as const);
+    const whereClause = statuses
+      ? and(eq(tunnels.userId, userId), inArray(tunnels.status, [...statuses]))
+      : eq(tunnels.userId, userId);
+
+    const rows = await db
+      .select({ tunnel: tunnels, lease: tunnelLeases })
+      .from(tunnels)
+      .leftJoin(tunnelLeases, eq(tunnelLeases.tunnelId, tunnels.id))
+      .where(whereClause)
+      .orderBy(asc(tunnels.createdAt));
+
+    return rows.map((row) => ({
+      tunnel: row.tunnel,
+      lease: row.lease ?? null,
+    }));
   }
 
   async upsertLease(tunnelId: string, now: Date, expiresAt: Date): Promise<void> {
@@ -308,6 +350,235 @@ export class Repository {
       .where(and(lte(tunnelLeases.expiresAt, now), eq(tunnels.status, 'active')));
 
     return rows.map((row) => row.tunnelId);
+  }
+
+  async upsertLiveTelemetry(input: {
+    tunnelId: string;
+    receivedAt: Date;
+    region: string | null;
+    ttl: number;
+    opn: number;
+    rt1Ms: number | null;
+    rt5Ms: number | null;
+    p50Ms: number | null;
+    p90Ms: number | null;
+    requests: number;
+    errors: number;
+    bytes: number;
+  }): Promise<void> {
+    await db
+      .insert(tunnelLiveMetrics)
+      .values({
+        tunnelId: input.tunnelId,
+        receivedAt: input.receivedAt,
+        region: input.region,
+        ttl: input.ttl,
+        opn: input.opn,
+        rt1Ms: input.rt1Ms,
+        rt5Ms: input.rt5Ms,
+        p50Ms: input.p50Ms,
+        p90Ms: input.p90Ms,
+        requests: input.requests,
+        errors: input.errors,
+        bytes: input.bytes,
+      })
+      .onConflictDoUpdate({
+        target: tunnelLiveMetrics.tunnelId,
+        set: {
+          receivedAt: input.receivedAt,
+          region: input.region,
+          ttl: input.ttl,
+          opn: input.opn,
+          rt1Ms: input.rt1Ms,
+          rt5Ms: input.rt5Ms,
+          p50Ms: input.p50Ms,
+          p90Ms: input.p90Ms,
+          requests: input.requests,
+          errors: input.errors,
+          bytes: input.bytes,
+        },
+      });
+  }
+
+  async insertMetricsPoint(input: {
+    tunnelId: string;
+    capturedAt: Date;
+    ttl: number;
+    opn: number;
+    rt1Ms: number | null;
+    rt5Ms: number | null;
+    p50Ms: number | null;
+    p90Ms: number | null;
+    requests: number;
+    errors: number;
+    bytes: number;
+  }): Promise<void> {
+    await db.insert(tunnelMetrics).values({
+      tunnelId: input.tunnelId,
+      capturedAt: input.capturedAt,
+      ttl: input.ttl,
+      opn: input.opn,
+      rt1Ms: input.rt1Ms,
+      rt5Ms: input.rt5Ms,
+      p50Ms: input.p50Ms,
+      p90Ms: input.p90Ms,
+      requests: input.requests,
+      errors: input.errors,
+      bytes: input.bytes,
+    });
+  }
+
+  async insertRequestLogs(
+    tunnelId: string,
+    ingestedAt: Date,
+    requests: Array<{
+      startedAt: Date;
+      method: string;
+      path: string;
+      statusCode: number;
+      durationMs: number;
+      responseBytes: number | null;
+      error: boolean;
+      protocol: 'http' | 'ws';
+    }>,
+  ): Promise<void> {
+    if (requests.length === 0) {
+      return;
+    }
+
+    await db.insert(tunnelRequests).values(
+      requests.map((request) => ({
+        tunnelId,
+        ingestedAt,
+        startedAt: request.startedAt,
+        method: request.method,
+        path: request.path,
+        statusCode: request.statusCode,
+        durationMs: request.durationMs,
+        responseBytes: request.responseBytes,
+        error: request.error,
+        protocol: request.protocol,
+      })),
+    );
+  }
+
+  async listLiveTelemetryForUser(userId: string): Promise<
+    Array<
+      Pick<
+        DbTunnelLiveMetric,
+        | 'tunnelId'
+        | 'receivedAt'
+        | 'region'
+        | 'ttl'
+        | 'opn'
+        | 'rt1Ms'
+        | 'rt5Ms'
+        | 'p50Ms'
+        | 'p90Ms'
+        | 'requests'
+        | 'errors'
+        | 'bytes'
+      >
+    >
+  > {
+    return db
+      .select({
+        tunnelId: tunnelLiveMetrics.tunnelId,
+        receivedAt: tunnelLiveMetrics.receivedAt,
+        region: tunnelLiveMetrics.region,
+        ttl: tunnelLiveMetrics.ttl,
+        opn: tunnelLiveMetrics.opn,
+        rt1Ms: tunnelLiveMetrics.rt1Ms,
+        rt5Ms: tunnelLiveMetrics.rt5Ms,
+        p50Ms: tunnelLiveMetrics.p50Ms,
+        p90Ms: tunnelLiveMetrics.p90Ms,
+        requests: tunnelLiveMetrics.requests,
+        errors: tunnelLiveMetrics.errors,
+        bytes: tunnelLiveMetrics.bytes,
+      })
+      .from(tunnels)
+      .innerJoin(tunnelLiveMetrics, eq(tunnelLiveMetrics.tunnelId, tunnels.id))
+      .where(and(eq(tunnels.userId, userId), inArray(tunnels.status, ['active', 'stopping'])))
+      .orderBy(asc(tunnels.createdAt));
+  }
+
+  async listMetrics(
+    tunnelId: string,
+    from: Date,
+    to: Date,
+    limit: number,
+  ): Promise<
+    Array<Pick<DbTunnelMetric, 'capturedAt' | 'ttl' | 'opn' | 'rt1Ms' | 'p90Ms' | 'requests' | 'errors' | 'bytes'>>
+  > {
+    return db
+      .select({
+        capturedAt: tunnelMetrics.capturedAt,
+        ttl: tunnelMetrics.ttl,
+        opn: tunnelMetrics.opn,
+        rt1Ms: tunnelMetrics.rt1Ms,
+        p90Ms: tunnelMetrics.p90Ms,
+        requests: tunnelMetrics.requests,
+        errors: tunnelMetrics.errors,
+        bytes: tunnelMetrics.bytes,
+      })
+      .from(tunnelMetrics)
+      .where(
+        and(
+          eq(tunnelMetrics.tunnelId, tunnelId),
+          gte(tunnelMetrics.capturedAt, from),
+          lte(tunnelMetrics.capturedAt, to),
+        ),
+      )
+      .orderBy(asc(tunnelMetrics.capturedAt))
+      .limit(limit);
+  }
+
+  async listRequests(
+    tunnelId: string,
+    after: Date | null,
+    limit: number,
+  ): Promise<
+    Array<
+      Pick<
+        DbTunnelRequest,
+        | 'ingestedAt'
+        | 'startedAt'
+        | 'method'
+        | 'path'
+        | 'statusCode'
+        | 'durationMs'
+        | 'responseBytes'
+        | 'error'
+        | 'protocol'
+      >
+    >
+  > {
+    const filters = [eq(tunnelRequests.tunnelId, tunnelId)];
+    if (after) {
+      filters.push(gt(tunnelRequests.ingestedAt, after));
+    }
+
+    return db
+      .select({
+        ingestedAt: tunnelRequests.ingestedAt,
+        startedAt: tunnelRequests.startedAt,
+        method: tunnelRequests.method,
+        path: tunnelRequests.path,
+        statusCode: tunnelRequests.statusCode,
+        durationMs: tunnelRequests.durationMs,
+        responseBytes: tunnelRequests.responseBytes,
+        error: tunnelRequests.error,
+        protocol: tunnelRequests.protocol,
+      })
+      .from(tunnelRequests)
+      .where(and(...filters))
+      .orderBy(asc(tunnelRequests.ingestedAt))
+      .limit(limit);
+  }
+
+  async pruneTelemetry(input: { metricsOlderThan: Date; requestsOlderThan: Date }): Promise<void> {
+    await db.delete(tunnelRequests).where(lte(tunnelRequests.ingestedAt, input.requestsOlderThan));
+    await db.delete(tunnelMetrics).where(lte(tunnelMetrics.capturedAt, input.metricsOlderThan));
   }
 
   async enqueueCleanupJob(tunnelId: string, reason: string): Promise<void> {

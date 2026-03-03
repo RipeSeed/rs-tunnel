@@ -18,13 +18,13 @@ These instructions guide Copilot on code style, architectural patterns, testing 
 
 ## Mission
 
-`rs-tunnel` is an internal Ripeseed alternative to ngrok:
+`rs-tunnel` is a self-hostable alternative to ngrok:
 
 - CLI: `@ripeseed/rs-tunnel`
 - API: `@ripeseed/api`
 - Shared contracts: `@ripeseed/shared`
-- Domain model: `*.tunnel.ripeseed.io`
-- API host: `api-tunnel.internal.ripeseed.io`
+- Domain model: `*.<CLOUDFLARE_BASE_DOMAIN>`
+- API host: `<API_BASE_URL>`
 
 The API is the source of truth for identity, authorization, Cloudflare tunnel lifecycle, and DNS lifecycle.
 
@@ -38,8 +38,8 @@ The API is the source of truth for identity, authorization, Cloudflare tunnel li
 
 ## Non-negotiable product constraints
 
-- Only `@ripeseed.io` emails are allowed.
-- Slack workspace must match configured allowlist (`RIPSEED_SLACK_TEAM_ID`).
+- Only emails ending in `ALLOWED_EMAIL_DOMAIN` are allowed.
+- Slack workspace must match `ALLOWED_SLACK_TEAM_ID`.
 - No nested domains: slugs must be single-label only.
 - Max 5 active tunnels per user (server-side enforcement).
 - On stop, DNS record must be deleted.
@@ -82,10 +82,16 @@ pnpm --filter @ripeseed/api dev
 5. Run CLI against local API:
 
 ```bash
-export RS_TUNNEL_API_BASE_URL=http://localhost:8080
-pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts login --email you@ripeseed.io
+export RS_TUNNEL_API_URL=http://localhost:8080
+pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts login --email you@example.com
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts up --port 3000 --url my-app
 ```
+
+Notes:
+
+- CLI commands accept `--domain <api-url>` and persist it for future runs.
+- First run with no configured domain prompts the user and stores it in `~/.rs-tunnel/config.json`.
+- For all commands, prefer setting `RS_TUNNEL_API_URL`.
 
 ## CLI runtime UX (ngrok-style)
 
@@ -117,6 +123,7 @@ Expected behavior:
 ## Release model
 
 Release is tag-driven (`v*.*.*`) via `.github/workflows/release.yml`.
+Packages publish to npmjs using `NPM_TOKEN`.
 
 Workflow order must remain:
 

@@ -5,7 +5,9 @@ import { AppError } from '../lib/app-error.js';
 
 export async function registerTunnelRoutes(app: FastifyInstance): Promise<void> {
   app.get('/tunnels', { preHandler: app.authenticate }, async (request) => {
-    return app.services.tunnelService.listTunnels(request.auth!.sub);
+    const query = request.query as { includeInactive?: string };
+    const includeInactive = query.includeInactive === 'true' || query.includeInactive === '1';
+    return app.services.tunnelService.listTunnels(request.auth!.sub, { includeInactive });
   });
 
   app.post(

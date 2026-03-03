@@ -22,7 +22,7 @@ type Session = {
 const env: Env = {
   NODE_ENV: 'test',
   PORT: 8080,
-  API_BASE_URL: 'https://api-tunnel.internal.ripeseed.io',
+  API_BASE_URL: 'http://localhost:8080',
   DATABASE_URL: 'postgres://x',
   JWT_SECRET: '1234567890123456',
   REFRESH_TOKEN_SECRET: '1234567890123456',
@@ -30,12 +30,13 @@ const env: Env = {
   REFRESH_TTL_DAYS: 30,
   SLACK_CLIENT_ID: 'client',
   SLACK_CLIENT_SECRET: 'secret',
-  SLACK_REDIRECT_URI: 'https://api-tunnel.internal.ripeseed.io/v1/auth/slack/callback',
-  RIPSEED_SLACK_TEAM_ID: 'TRIPESEED',
+  SLACK_REDIRECT_URI: 'http://localhost:8080/v1/auth/slack/callback',
+  ALLOWED_EMAIL_DOMAIN: '@example.com',
+  ALLOWED_SLACK_TEAM_ID: 'TEXAMPLE',
   CLOUDFLARE_ACCOUNT_ID: 'A1',
   CLOUDFLARE_ZONE_ID: 'Z1',
   CLOUDFLARE_API_TOKEN: 'token',
-  CLOUDFLARE_BASE_DOMAIN: 'tunnel.ripeseed.io',
+  CLOUDFLARE_BASE_DOMAIN: 'tunnel.example.com',
   MAX_ACTIVE_TUNNELS: 5,
   HEARTBEAT_INTERVAL_SEC: 20,
   LEASE_TIMEOUT_SEC: 60,
@@ -114,7 +115,7 @@ describe('AuthService integration behaviors', () => {
     vi.unstubAllGlobals();
   });
 
-  it('allows Slack login success for @ripeseed.io in the configured workspace', async () => {
+  it('allows Slack login success for allowed email domain in the configured workspace', async () => {
     const service = new AuthService(
       env,
       repository as unknown as Repository,
@@ -124,7 +125,7 @@ describe('AuthService integration behaviors', () => {
     const codeChallenge = createCodeChallenge(verifier);
 
     const start = await service.startSlackAuth({
-      email: 'osama@ripeseed.io',
+      email: 'osama@example.com',
       codeChallenge,
       cliCallbackUrl: 'http://127.0.0.1:7777/callback',
     });
@@ -140,9 +141,9 @@ describe('AuthService integration behaviors', () => {
         .mockResolvedValueOnce({
           ok: true,
           json: async () => ({
-            email: 'osama@ripeseed.io',
+            email: 'osama@example.com',
             'https://slack.com/user_id': 'U1',
-            'https://slack.com/team_id': 'TRIPESEED',
+            'https://slack.com/team_id': 'TEXAMPLE',
           }),
         }),
     );
@@ -161,12 +162,12 @@ describe('AuthService integration behaviors', () => {
       codeVerifier: verifier,
     });
 
-    expect(exchange.profile.email).toBe('osama@ripeseed.io');
+    expect(exchange.profile.email).toBe('osama@example.com');
     expect(exchange.accessToken).toBe('access-token');
     expect(exchange.refreshToken).toBe('refresh-token');
   });
 
-  it('denies non ripeseed email during login start', async () => {
+  it('denies emails outside the allowed domain during login start', async () => {
     const service = new AuthService(
       env,
       repository as unknown as Repository,
@@ -192,7 +193,7 @@ describe('AuthService integration behaviors', () => {
     const codeChallenge = createCodeChallenge(verifier);
 
     const start = await service.startSlackAuth({
-      email: 'osama@ripeseed.io',
+      email: 'osama@example.com',
       codeChallenge,
       cliCallbackUrl: 'http://127.0.0.1:7777/callback',
     });
@@ -208,7 +209,7 @@ describe('AuthService integration behaviors', () => {
         .mockResolvedValueOnce({
           ok: true,
           json: async () => ({
-            email: 'osama@ripeseed.io',
+            email: 'osama@example.com',
             'https://slack.com/user_id': 'U1',
             'https://slack.com/team_id': 'TOTHER',
           }),

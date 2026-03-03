@@ -3,12 +3,35 @@ import {
   authExchangeRequestSchema,
   authStartRequestSchema,
   authStartResponseSchema,
+  heartbeatResponseSchema,
   refreshRequestSchema,
   tokenPairSchema,
   tunnelCreateRequestSchema,
   tunnelCreateResponseSchema,
+  tunnelListResponseSchema,
+  tunnelTelemetryIngestRequestSchema,
+  tunnelTelemetryIngestResponseSchema,
 } from '@ripeseed/shared';
-import { z } from 'zod';
+import type { TunnelTelemetryIngestRequest } from '@ripeseed/shared';
+
+function formatNetworkFailure(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return 'unknown network error';
+  }
+
+  const cause = error.cause;
+  if (!cause || typeof cause !== 'object') {
+    return error.message;
+  }
+
+  const code = typeof (cause as { code?: unknown }).code === 'string' ? (cause as { code: string }).code : undefined;
+  const message =
+    typeof (cause as { message?: unknown }).message === 'string'
+      ? (cause as { message: string }).message
+      : error.message;
+
+  return code ? `${code}: ${message}` : message;
+}
 
 export class ApiClientError extends Error {
   constructor(
@@ -21,23 +44,16 @@ export class ApiClientError extends Error {
   }
 }
 
-const listTunnelSchema = z.array(
-  z.object({
-    id: z.string(),
-    hostname: z.string(),
-    slug: z.string(),
-    status: z.string(),
-    requestedPort: z.number(),
-    createdAt: z.string(),
-  }),
-);
-
 export class ApiClient {
   constructor(private readonly baseUrl: string) {}
 
   async health(): Promise<boolean> {
-    const response = await fetch(`${this.baseUrl}/healthz`);
-    return response.ok;
+    try {
+      const response = await fetch(`${this.baseUrl}/healthz`);
+      return response.ok;
+    } catch {
+      return false;
+    }
   }
 
   async startSlackAuth(input: { email: string; codeChallenge: string; cliCallbackUrl: string }): Promise<{
@@ -100,7 +116,7 @@ export class ApiClient {
       accessToken,
     });
 
-    return listTunnelSchema.parse(response);
+    return tunnelListResponseSchema.parse(response);
   }
 
   async heartbeat(accessToken: string, tunnelIdOrHostname: string): Promise<{ expiresAt: string }> {
@@ -109,7 +125,23 @@ export class ApiClient {
       accessToken,
     });
 
-    return z.object({ ok: z.literal(true), expiresAt: z.string() }).parse(response);
+    const parsed = heartbeatResponseSchema.parse(response);
+    return { expiresAt: parsed.expiresAt };
+  }
+
+  async ingestTelemetry(
+    accessToken: string,
+    tunnelIdOrHostname: string,
+    input: TunnelTelemetryIngestRequest,
+  ): Promise<void> {
+    const body = tunnelTelemetryIngestRequestSchema.parse(input);
+    const response = await this.request(`/v1/tunnels/${encodeURIComponent(tunnelIdOrHostname)}/telemetry`, {
+      method: 'POST',
+      accessToken,
+      body,
+    });
+
+    tunnelTelemetryIngestResponseSchema.parse(response);
   }
 
   async stopTunnel(accessToken: string, tunnelIdOrHostname: string): Promise<void> {
@@ -127,14 +159,24 @@ export class ApiClient {
       body?: unknown;
     },
   ): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      method: init.method,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(init.accessToken ? { Authorization: `Bearer ${init.accessToken}` } : {}),
-      },
-      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, {
+        method: init.method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(init.accessToken ? { Authorization: `Bearer ${init.accessToken}` } : {}),
+        },
+        body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      });
+    } catch (error) {
+      const networkFailure = formatNetworkFailure(error);
+      throw new ApiClientError(
+        0,
+        'NETWORK_ERROR',
+        `Unable to reach API at ${this.baseUrl} (${networkFailure}). Verify /healthz from this shell, or run the command with --domain <url>.`,
+      );
+    }
 
     if (response.status === 204) {
       return {};

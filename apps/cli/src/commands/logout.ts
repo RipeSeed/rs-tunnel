@@ -1,9 +1,10 @@
-import { cliConfig } from '../config.js';
+import { getCliConfig } from '../config.js';
 import { ApiClient } from '../lib/api-client.js';
 import { clearSession, loadSession } from '../store/credentials.js';
 
 export async function logoutCommand(): Promise<void> {
-  const apiClient = new ApiClient(cliConfig.apiBaseUrl);
+  const config = getCliConfig();
+  const apiClient = new ApiClient(config.apiBaseUrl);
   const session = await loadSession();
 
   if (session) {

@@ -2,11 +2,23 @@
   "name": "@ripeseed/shared",
   "version": "0.1.0",
   "private": false,
+  "description": "Shared Zod schemas and TypeScript contracts for rs-tunnel services and clients.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RipeSeed/rs-tunnel.git",
+    "directory": "packages/shared"
+  },
+  "bugs": {
+    "url": "https://github.com/RipeSeed/rs-tunnel/issues"
+  },
+  "homepage": "https://github.com/RipeSeed/rs-tunnel/tree/main/packages/shared",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
   },
   "files": [
     "dist"
@@ -14,16 +26,17 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -w -p tsconfig.json",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src test --ext .ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
-    "format": "prettier --check src"
+    "format": "prettier --check src test"
   },
   "dependencies": {
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@ripeseed/config": "workspace:*",
-    "@types/node": "^22.12.0"
+    "@types/node": "^22.12.0",
+    "vitest": "^3.0.5"
   }
 }

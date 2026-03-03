@@ -1,5 +1,7 @@
 import { relations, sql } from 'drizzle-orm';
 import {
+  bigint,
+  boolean,
   index,
   integer,
   jsonb,
@@ -104,6 +106,76 @@ export const tunnelLeases = pgTable(
   }),
 );
 
+export const tunnelLiveMetrics = pgTable(
+  'tunnel_live_metrics',
+  {
+    tunnelId: uuid('tunnel_id')
+      .notNull()
+      .primaryKey()
+      .references(() => tunnels.id, { onDelete: 'cascade' }),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    region: varchar('region', { length: 16 }),
+    ttl: integer('ttl').notNull(),
+    opn: integer('opn').notNull(),
+    rt1Ms: integer('rt1_ms'),
+    rt5Ms: integer('rt5_ms'),
+    p50Ms: integer('p50_ms'),
+    p90Ms: integer('p90_ms'),
+    requests: integer('requests').notNull(),
+    errors: integer('errors').notNull(),
+    bytes: bigint('bytes', { mode: 'number' }).notNull(),
+  },
+  (table) => ({
+    receivedAtIdx: index('tunnel_live_metrics_received_at_idx').on(table.receivedAt),
+  }),
+);
+
+export const tunnelMetrics = pgTable(
+  'tunnel_metrics',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tunnelId: uuid('tunnel_id')
+      .notNull()
+      .references(() => tunnels.id, { onDelete: 'cascade' }),
+    capturedAt: timestamp('captured_at', { withTimezone: true }).notNull().defaultNow(),
+    ttl: integer('ttl').notNull(),
+    opn: integer('opn').notNull(),
+    rt1Ms: integer('rt1_ms'),
+    rt5Ms: integer('rt5_ms'),
+    p50Ms: integer('p50_ms'),
+    p90Ms: integer('p90_ms'),
+    requests: integer('requests').notNull(),
+    errors: integer('errors').notNull(),
+    bytes: bigint('bytes', { mode: 'number' }).notNull(),
+  },
+  (table) => ({
+    tunnelCapturedAtIdx: index('tunnel_metrics_tunnel_captured_at_idx').on(table.tunnelId, table.capturedAt),
+  }),
+);
+
+export const tunnelRequests = pgTable(
+  'tunnel_requests',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    tunnelId: uuid('tunnel_id')
+      .notNull()
+      .references(() => tunnels.id, { onDelete: 'cascade' }),
+    ingestedAt: timestamp('ingested_at', { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    method: varchar('method', { length: 16 }).notNull(),
+    path: text('path').notNull(),
+    statusCode: integer('status_code').notNull(),
+    durationMs: integer('duration_ms').notNull(),
+    responseBytes: integer('response_bytes'),
+    protocol: varchar('protocol', { length: 4 }).notNull(),
+    error: boolean('error').notNull(),
+  },
+  (table) => ({
+    tunnelIngestedAtIdx: index('tunnel_requests_tunnel_ingested_at_idx').on(table.tunnelId, table.ingestedAt),
+    tunnelStatusCodeIdx: index('tunnel_requests_tunnel_status_code_idx').on(table.tunnelId, table.statusCode),
+  }),
+);
+
 export const cleanupJobs = pgTable(
   'cleanup_jobs',
   {
@@ -149,6 +221,12 @@ export const tunnelRelations = relations(tunnels, ({ one, many }) => ({
     references: [tunnelLeases.tunnelId],
   }),
   cleanupJobs: many(cleanupJobs),
+  liveMetrics: one(tunnelLiveMetrics, {
+    fields: [tunnels.id],
+    references: [tunnelLiveMetrics.tunnelId],
+  }),
+  metrics: many(tunnelMetrics),
+  requests: many(tunnelRequests),
 }));
 
 export const touchUpdatedAtSql = sql`now()`;
@@ -156,4 +234,8 @@ export const touchUpdatedAtSql = sql`now()`;
 export type DbUser = typeof users.$inferSelect;
 export type DbOAuthSession = typeof oauthSessions.$inferSelect;
 export type DbTunnel = typeof tunnels.$inferSelect;
+export type DbTunnelLease = typeof tunnelLeases.$inferSelect;
+export type DbTunnelLiveMetric = typeof tunnelLiveMetrics.$inferSelect;
+export type DbTunnelMetric = typeof tunnelMetrics.$inferSelect;
+export type DbTunnelRequest = typeof tunnelRequests.$inferSelect;
 export type DbCleanupJob = typeof cleanupJobs.$inferSelect;

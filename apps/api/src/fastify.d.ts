@@ -1,6 +1,6 @@
 import type { FastifyReply } from 'fastify';
 
-import type { AccessTokenPayload, AuthService, TokenService, TunnelService } from './types.js';
+import type { AccessTokenPayload, AuthService, TelemetryService, TokenService, TunnelService } from './types.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -10,6 +10,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     services: {
       authService: AuthService;
+      telemetryService: TelemetryService;
       tunnelService: TunnelService;
       tokenService: TokenService;
     };

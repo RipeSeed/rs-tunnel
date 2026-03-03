@@ -1,4 +1,4 @@
-import { cliConfig } from '../config.js';
+import { getCliConfig } from '../config.js';
 import { ApiClient } from '../lib/api-client.js';
 import { withAuthenticatedSession } from '../lib/session.js';
 
@@ -7,7 +7,8 @@ export async function stopCommand(tunnelIdentifier: string): Promise<void> {
     throw new Error('Tunnel identifier is required.');
   }
 
-  const apiClient = new ApiClient(cliConfig.apiBaseUrl);
+  const config = getCliConfig();
+  const apiClient = new ApiClient(config.apiBaseUrl);
 
   await withAuthenticatedSession(apiClient, async (session) => {
     await apiClient.stopTunnel(session.accessToken, tunnelIdentifier);

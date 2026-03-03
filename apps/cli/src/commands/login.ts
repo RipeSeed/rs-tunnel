@@ -1,17 +1,15 @@
 import open from 'open';
 
-import { cliConfig } from '../config.js';
+import { getCliConfig } from '../config.js';
 import { ApiClient } from '../lib/api-client.js';
 import { startCallbackServer } from '../lib/local-callback.js';
 import { createPkcePair } from '../lib/pkce.js';
 import { saveSession } from '../store/credentials.js';
 
 export async function loginCommand(email: string): Promise<void> {
-  if (!email.toLowerCase().endsWith('@ripeseed.io')) {
-    throw new Error('Only @ripeseed.io emails are allowed.');
-  }
+  const config = getCliConfig();
 
-  const apiClient = new ApiClient(cliConfig.apiBaseUrl);
+  const apiClient = new ApiClient(config.apiBaseUrl);
   const callbackServer = await startCallbackServer();
   const pkce = createPkcePair();
 

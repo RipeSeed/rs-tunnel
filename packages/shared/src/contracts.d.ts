@@ -1,5 +1,9 @@
 import { z } from 'zod';
-export declare const EMAIL_DOMAIN = "@ripeseed.io";
+export declare const DEFAULT_ALLOWED_EMAIL_DOMAIN = "@example.com";
+/**
+ * @deprecated Use ALLOWED_EMAIL_DOMAIN runtime config in API only.
+ */
+export declare const EMAIL_DOMAIN = "@example.com";
 export declare const tunnelSlugRegex: RegExp;
 export declare const tunnelCreateRequestSchema: z.ZodObject<{
     port: z.ZodNumber;
