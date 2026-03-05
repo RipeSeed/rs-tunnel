@@ -80,6 +80,17 @@ function formatConnectionRow(metrics: TunnelStatsSnapshot): string {
   return `Connections   ttl     opn     rt1     rt5     p50     p90\n             ${columns.join('')}`;
 }
 
+function isSameMetrics(left: TunnelStatsSnapshot, right: TunnelStatsSnapshot): boolean {
+  return (
+    left.ttl === right.ttl &&
+    left.opn === right.opn &&
+    left.rt1Ms === right.rt1Ms &&
+    left.rt5Ms === right.rt5Ms &&
+    left.p50Ms === right.p50Ms &&
+    left.p90Ms === right.p90Ms
+  );
+}
+
 function buildHeader(input: {
   account: string;
   version: string;
@@ -118,15 +129,24 @@ export function createUpDashboard(input: CreateUpDashboardInput): UpDashboard {
 
   const logLines: string[] = [];
   let lastNonTtyMetricsAt = 0;
+  let isDirty = true;
+  let lastRenderColumns = stdout.columns ?? 100;
 
   const appendLogLine = (line: string): void => {
-    logLines.push(line);
+    const normalizedLine = line.trimEnd();
+    if (normalizedLine.trim().length === 0) {
+      return;
+    }
+
+    logLines.push(normalizedLine);
     if (logLines.length > MAX_LOG_LINES) {
       logLines.shift();
     }
 
+    isDirty = true;
+
     if (!isTty) {
-      stdout.write(`${line}\n`);
+      stdout.write(`${normalizedLine}\n`);
     }
   };
 
@@ -136,6 +156,11 @@ export function createUpDashboard(input: CreateUpDashboardInput): UpDashboard {
     }
 
     const columns = stdout.columns ?? 100;
+    if (!isDirty && columns === lastRenderColumns) {
+      return;
+    }
+
+    lastRenderColumns = columns;
     const requestLines = logLines.map((line) => truncate(line, Math.max(30, columns - 1))).join('\n');
     const latency = formatMetric(metrics.rt1Ms);
 
@@ -156,6 +181,7 @@ export function createUpDashboard(input: CreateUpDashboardInput): UpDashboard {
     stdout.write('\x1b[2J\x1b[H');
     stdout.write(body);
     stdout.write('\n');
+    isDirty = false;
   };
 
   if (!isTty) {
@@ -184,12 +210,18 @@ export function createUpDashboard(input: CreateUpDashboardInput): UpDashboard {
       }
 
       region = normalized;
+      isDirty = true;
       if (!isTty) {
         stdout.write(`Region       ${region}\n`);
       }
     },
     setMetrics: (nextMetrics) => {
+      if (isSameMetrics(metrics, nextMetrics)) {
+        return;
+      }
+
       metrics = nextMetrics;
+      isDirty = true;
 
       if (!isTty) {
         const now = Date.now();
@@ -207,9 +239,17 @@ export function createUpDashboard(input: CreateUpDashboardInput): UpDashboard {
         return;
       }
 
+      if (line.trim().length === 0) {
+        return;
+      }
+
       appendLogLine(`[cloudflared] ${line}`);
     },
     addMessage: (line) => {
+      if (line.trim().length === 0) {
+        return;
+      }
+
       appendLogLine(`[info] ${line}`);
     },
     stop: () => {
