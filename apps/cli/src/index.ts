@@ -9,6 +9,7 @@ import { logoutCommand } from './commands/logout.js';
 import { stopCommand } from './commands/stop.js';
 import { upCommand } from './commands/up.js';
 import { ensureApiBaseUrlConfigured } from './config.js';
+import { getCliVersion } from './lib/version.js';
 
 const program = new Command();
 const domainOptionDescription =
@@ -21,7 +22,7 @@ async function applyDomainOption(domain?: string): Promise<void> {
 program
   .name('rs-tunnel')
   .description('Self-hostable Cloudflare tunnel CLI')
-  .version('0.1.0');
+  .version(getCliVersion());
 
 program
   .command('login')
