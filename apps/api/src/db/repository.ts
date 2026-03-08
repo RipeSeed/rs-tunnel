@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 
 import { db } from './client.js';
 import {
@@ -22,6 +22,12 @@ import {
   type DbTunnel,
   type DbUser,
 } from './schema.js';
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuidLike(value: string): boolean {
+  return uuidPattern.test(value);
+}
 
 export class Repository {
   async upsertUserBySlack(input: {
@@ -265,13 +271,17 @@ export class Repository {
   }
 
   async findTunnelForUser(userId: string, tunnelIdentifier: string): Promise<DbTunnel | undefined> {
+    const identifierClause = isUuidLike(tunnelIdentifier)
+      ? eq(tunnels.id, tunnelIdentifier)
+      : eq(tunnels.hostname, tunnelIdentifier);
+
     const [tunnel] = await db
       .select()
       .from(tunnels)
       .where(
         and(
           eq(tunnels.userId, userId),
-          or(eq(tunnels.id, tunnelIdentifier), eq(tunnels.hostname, tunnelIdentifier)),
+          identifierClause,
           inArray(tunnels.status, ['active', 'stopping']),
         ),
       );
@@ -279,13 +289,17 @@ export class Repository {
   }
 
   async findTunnelForUserAnyStatus(userId: string, tunnelIdentifier: string): Promise<DbTunnel | undefined> {
+    const identifierClause = isUuidLike(tunnelIdentifier)
+      ? eq(tunnels.id, tunnelIdentifier)
+      : eq(tunnels.hostname, tunnelIdentifier);
+
     const [tunnel] = await db
       .select()
       .from(tunnels)
       .where(
         and(
           eq(tunnels.userId, userId),
-          or(eq(tunnels.id, tunnelIdentifier), eq(tunnels.hostname, tunnelIdentifier)),
+          identifierClause,
         ),
       );
     return tunnel;

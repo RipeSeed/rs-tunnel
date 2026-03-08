@@ -6,7 +6,7 @@ import type { Repository } from '../../src/db/repository.js';
 
 describe('TelemetryService', () => {
   const repository = {
-    findTunnelForUser: vi.fn(),
+    getTunnelById: vi.fn(),
     findTunnelForUserAnyStatus: vi.fn(),
     upsertLiveTelemetry: vi.fn(),
     insertMetricsPoint: vi.fn(),
@@ -26,15 +26,17 @@ describe('TelemetryService', () => {
     vi.useRealTimers();
   });
 
-  it('throws when tunnel is not found for user during ingest', async () => {
-    repository.findTunnelForUser.mockResolvedValue(undefined);
+  it('throws when tunnel is not active during runtime ingest', async () => {
+    repository.getTunnelById.mockResolvedValue({
+      id: 'tunnel-uuid',
+      status: 'stopping',
+    });
 
     const service = new TelemetryService(repository as unknown as Repository);
 
     await expect(
-      service.ingestTelemetry({
-        userId: 'user-1',
-        tunnelIdentifier: 'tunnel-1',
+      service.ingestRuntimeTelemetry({
+        tunnelId: 'tunnel-1',
         region: null,
         metrics: {
           ttl: 0,
@@ -56,7 +58,7 @@ describe('TelemetryService', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
 
-    repository.findTunnelForUser.mockResolvedValue({
+    repository.getTunnelById.mockResolvedValue({
       id: 'tunnel-uuid',
       userId: 'user-1',
       status: 'active',
@@ -64,9 +66,8 @@ describe('TelemetryService', () => {
 
     const service = new TelemetryService(repository as unknown as Repository);
 
-    await service.ingestTelemetry({
-      userId: 'user-1',
-      tunnelIdentifier: 'tunnel-uuid',
+    await service.ingestRuntimeTelemetry({
+      tunnelId: 'tunnel-uuid',
       region: 'iad',
       metrics: {
         ttl: 1,
@@ -101,7 +102,7 @@ describe('TelemetryService', () => {
 
   it('downsamples metrics points to at most once per 10 seconds per tunnel', async () => {
     vi.useFakeTimers();
-    repository.findTunnelForUser.mockResolvedValue({
+    repository.getTunnelById.mockResolvedValue({
       id: 'tunnel-uuid',
       userId: 'user-1',
       status: 'active',
@@ -110,9 +111,8 @@ describe('TelemetryService', () => {
     const service = new TelemetryService(repository as unknown as Repository);
 
     vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
-    await service.ingestTelemetry({
-      userId: 'user-1',
-      tunnelIdentifier: 'tunnel-uuid',
+    await service.ingestRuntimeTelemetry({
+      tunnelId: 'tunnel-uuid',
       region: null,
       metrics: {
         ttl: 0,
@@ -129,9 +129,8 @@ describe('TelemetryService', () => {
     });
 
     vi.setSystemTime(new Date('2026-01-01T00:00:05.000Z'));
-    await service.ingestTelemetry({
-      userId: 'user-1',
-      tunnelIdentifier: 'tunnel-uuid',
+    await service.ingestRuntimeTelemetry({
+      tunnelId: 'tunnel-uuid',
       region: null,
       metrics: {
         ttl: 0,
@@ -148,9 +147,8 @@ describe('TelemetryService', () => {
     });
 
     vi.setSystemTime(new Date('2026-01-01T00:00:11.000Z'));
-    await service.ingestTelemetry({
-      userId: 'user-1',
-      tunnelIdentifier: 'tunnel-uuid',
+    await service.ingestRuntimeTelemetry({
+      tunnelId: 'tunnel-uuid',
       region: null,
       metrics: {
         ttl: 0,

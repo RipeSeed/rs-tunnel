@@ -7,6 +7,11 @@ export type AccessTokenPayload = {
   slackTeamId: string;
 };
 
+export type RuntimeTunnelTokenPayload = {
+  scope: 'tunnel:runtime';
+  tunnelId: string;
+};
+
 export type TokenPair = {
   accessToken: string;
   refreshToken: string;
@@ -100,18 +105,19 @@ export interface TunnelService {
     tunnelId: string;
     hostname: string;
     cloudflaredToken: string;
-    heartbeatIntervalSec: 20;
+    tunnelRunToken: string;
+    heartbeatIntervalSec: number;
+    leaseTimeoutSec: number;
   }>;
   listTunnels(userId: string, options?: { includeInactive?: boolean }): Promise<TunnelSummary[]>;
-  heartbeat(input: { userId: string; tunnelIdentifier: string }): Promise<{ expiresAt: string }>;
+  heartbeatTunnel(input: { tunnelId: string }): Promise<{ expiresAt: string }>;
   stopTunnel(input: { userId: string; tunnelIdentifier: string }): Promise<void>;
   stopTunnelById(tunnelId: string, reason: string): Promise<void>;
 }
 
 export interface TelemetryService {
-  ingestTelemetry(input: {
-    userId: string;
-    tunnelIdentifier: string;
+  ingestRuntimeTelemetry(input: {
+    tunnelId: string;
     region?: string | null;
     metrics: TunnelTelemetryMetrics;
     requests: TunnelTelemetryRequestEvent[];
@@ -128,6 +134,8 @@ export interface TelemetryService {
 export interface TokenService {
   signAccessToken(payload: AccessTokenPayload): string;
   verifyAccessToken(token: string): AccessTokenPayload;
+  signTunnelRunToken(payload: { tunnelId: string }): string;
+  verifyTunnelRunToken(token: string): RuntimeTunnelTokenPayload;
   generateRefreshToken(): string;
   hashToken(token: string): string;
 }

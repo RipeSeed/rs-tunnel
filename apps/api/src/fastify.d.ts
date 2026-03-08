@@ -1,10 +1,18 @@
 import type { FastifyReply } from 'fastify';
 
-import type { AccessTokenPayload, AuthService, TelemetryService, TokenService, TunnelService } from './types.js';
+import type {
+  AccessTokenPayload,
+  AuthService,
+  RuntimeTunnelTokenPayload,
+  TelemetryService,
+  TokenService,
+  TunnelService,
+} from './types.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
     auth?: AccessTokenPayload;
+    tunnelRuntimeAuth?: RuntimeTunnelTokenPayload;
   }
 
   interface FastifyInstance {
@@ -15,6 +23,10 @@ declare module 'fastify' {
       tokenService: TokenService;
     };
     authenticate: (
+      request: import('fastify').FastifyRequest,
+      reply: FastifyReply
+    ) => Promise<void>;
+    authenticateTunnelRuntime: (
       request: import('fastify').FastifyRequest,
       reply: FastifyReply
     ) => Promise<void>;

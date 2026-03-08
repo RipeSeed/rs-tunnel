@@ -14,7 +14,7 @@ import { ReaperWorker } from './workers/reaper.worker.js';
 async function start(): Promise<void> {
   const tokenService = new TokenService(env);
   const cloudflareService = new CloudflareService(env);
-  const tunnelService = new TunnelService(env, repository, cloudflareService);
+  const tunnelService = new TunnelService(env, repository, cloudflareService, tokenService);
   const authService = new AuthService(env, repository, tokenService);
   const telemetryService = new TelemetryService(repository);
   const cleanupService = new CleanupService(repository, tunnelService);

@@ -5,17 +5,19 @@ import { type DbTunnel } from '../db/schema.js';
 import { createLeaseExpiry } from '../utils/lease.js';
 import { generateRandomSlug, validateRequestedSlug } from '../utils/slug.js';
 import type { Env } from '../config/env.js';
-import type { TunnelLeaseSummary, TunnelService as TunnelServiceContract, TunnelSummary } from '../types.js';
+import type { TokenService, TunnelLeaseSummary, TunnelService as TunnelServiceContract, TunnelSummary } from '../types.js';
 import { CloudflareService } from './cloudflare.service.js';
 import { assertWithinTunnelLimit } from './quota.js';
 
-const ACTIVE_STATES = new Set(['active', 'stopping']);
+const HEARTBEAT_ELIGIBLE_STATES = new Set(['active']);
+const STOPPABLE_STATES = new Set(['active', 'stopping']);
 
 export class TunnelService implements TunnelServiceContract {
   constructor(
     private readonly env: Env,
     private readonly repository: Repository,
     private readonly cloudflareService: CloudflareService,
+    private readonly tokenService: TokenService,
   ) {}
 
   async createTunnel(input: {
@@ -26,7 +28,9 @@ export class TunnelService implements TunnelServiceContract {
     tunnelId: string;
     hostname: string;
     cloudflaredToken: string;
-    heartbeatIntervalSec: 20;
+    tunnelRunToken: string;
+    heartbeatIntervalSec: number;
+    leaseTimeoutSec: number;
   }> {
     if (input.port < 1 || input.port > 65535) {
       throw new AppError(400, 'INVALID_PORT', 'Port must be between 1 and 65535.');
@@ -75,6 +79,10 @@ export class TunnelService implements TunnelServiceContract {
         createLeaseExpiry(now, this.env.LEASE_TIMEOUT_SEC),
       );
 
+      const tunnelRunToken = this.tokenService.signTunnelRunToken({
+        tunnelId: dbTunnel.id,
+      });
+
       await this.repository.createAuditLog({
         userId: input.userId,
         action: 'tunnel.created',
@@ -89,7 +97,9 @@ export class TunnelService implements TunnelServiceContract {
         tunnelId: dbTunnel.id,
         hostname,
         cloudflaredToken,
-        heartbeatIntervalSec: 20,
+        tunnelRunToken,
+        heartbeatIntervalSec: this.env.HEARTBEAT_INTERVAL_SEC,
+        leaseTimeoutSec: this.env.LEASE_TIMEOUT_SEC,
       };
     } catch (error) {
       await this.repository.markTunnelFailed(dbTunnel.id, error instanceof Error ? error.message : 'Unknown error');
@@ -136,11 +146,11 @@ export class TunnelService implements TunnelServiceContract {
     });
   }
 
-  async heartbeat(input: { userId: string; tunnelIdentifier: string }): Promise<{ expiresAt: string }> {
-    const tunnel = await this.repository.findTunnelForUser(input.userId, input.tunnelIdentifier);
+  async heartbeatTunnel(input: { tunnelId: string }): Promise<{ expiresAt: string }> {
+    const tunnel = await this.repository.getTunnelById(input.tunnelId);
 
-    if (!tunnel || !ACTIVE_STATES.has(tunnel.status)) {
-      throw new AppError(404, 'TUNNEL_NOT_FOUND', 'Tunnel was not found for this user.');
+    if (!tunnel || !HEARTBEAT_ELIGIBLE_STATES.has(tunnel.status)) {
+      throw new AppError(404, 'TUNNEL_NOT_FOUND', 'Tunnel was not found or is no longer active.');
     }
 
     const now = new Date();
@@ -168,7 +178,7 @@ export class TunnelService implements TunnelServiceContract {
       return;
     }
 
-    if (!ACTIVE_STATES.has(tunnel.status)) {
+    if (!STOPPABLE_STATES.has(tunnel.status)) {
       return;
     }
 
@@ -179,7 +189,16 @@ export class TunnelService implements TunnelServiceContract {
     await this.repository.markTunnelStopping(tunnel.id);
 
     if (tunnel.cfDnsRecordId) {
-      await this.cloudflareService.deleteDnsRecord(tunnel.cfDnsRecordId);
+      try {
+        await this.cloudflareService.deleteDnsRecord(tunnel.cfDnsRecordId);
+      } catch (error) {
+        await this.repository.enqueueCleanupJob(tunnel.id, 'dns_deletion_failed');
+        throw new AppError(
+          502,
+          'TUNNEL_DNS_DELETION_FAILED',
+          error instanceof Error ? error.message : 'Failed to delete DNS record; cleanup will be retried.',
+        );
+      }
     }
 
     if (tunnel.cfTunnelId) {

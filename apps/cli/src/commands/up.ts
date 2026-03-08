@@ -168,7 +168,10 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
   let metricsTimer: ReturnType<typeof setInterval> | null = null;
   let telemetryTimer: ReturnType<typeof setInterval> | null = null;
   let stopRemoteTunnelPromise: Promise<void> | null = null;
+  let heartbeatInFlight: Promise<void> | null = null;
+  let telemetryInFlight: Promise<void> | null = null;
   let remoteTunnelStopped = false;
+  let shutdownSignal: NodeJS.Signals | null = null;
 
   const cloudflaredLogBuffer: string[] = [];
   let currentRegion: string | null = null;
@@ -242,9 +245,17 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
   };
 
   const handleSignal = (signal: NodeJS.Signals): void => {
+    shutdownSignal = signal;
+
+    if (child) {
+      child.kill(signal);
+      return;
+    }
+
     void (async () => {
       await stopRemoteTunnel();
-      child?.kill(signal);
+      await stopProxy(proxy);
+      dependencies.processRef.exit(signal === 'SIGINT' ? 130 : 143);
     })();
   };
 
@@ -317,14 +328,26 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
     closeStderrReader = attachLineReader(child.stderr, handleCloudflaredLine);
 
     heartbeatTimer = dependencies.setInterval(() => {
-      void withTokenRetry(apiClient, sessionRef, dependencies.saveSession, (accessToken) =>
-        apiClient.heartbeat(accessToken, tunnelId),
-      ).catch((error) => {
-        console.error(formatApiClientError('Heartbeat failed', error));
-      });
+      if (heartbeatInFlight) {
+        return;
+      }
+
+      heartbeatInFlight = apiClient
+        .heartbeat(tunnel!.tunnelRunToken, tunnelId)
+        .then(() => undefined)
+        .catch((error) => {
+          console.error(formatApiClientError('Heartbeat failed', error));
+        })
+        .finally(() => {
+          heartbeatInFlight = null;
+        });
     }, tunnel.heartbeatIntervalSec * 1000);
 
     telemetryTimer = dependencies.setInterval(() => {
+      if (telemetryInFlight) {
+        return;
+      }
+
       const snapshot = stats.getSnapshot();
       const drained = telemetryQueue.splice(0, 200);
 
@@ -354,34 +377,47 @@ export async function upCommand(input: UpInput, dependencies: UpCommandDependenc
         requests: drained,
       };
 
-      void withTokenRetry(apiClient, sessionRef, dependencies.saveSession, (accessToken) =>
-        apiClient.ingestTelemetry(accessToken, tunnelId, payload),
-      ).catch((error) => {
-        if (error instanceof ApiClientError && (error.status === 404 || error.status === 405)) {
-          telemetryDisabled = true;
-          if (telemetryTimer) {
-            dependencies.clearInterval(telemetryTimer);
-            telemetryTimer = null;
+      telemetryInFlight = apiClient
+        .ingestTelemetry(tunnel!.tunnelRunToken, tunnelId, payload)
+        .catch((error) => {
+          if (error instanceof ApiClientError && (error.status === 404 || error.status === 405)) {
+            telemetryDisabled = true;
+            if (telemetryTimer) {
+              dependencies.clearInterval(telemetryTimer);
+              telemetryTimer = null;
+            }
+            dashboard?.addMessage('Portal telemetry disabled (server does not support it).');
+            return;
           }
-          dashboard?.addMessage('Portal telemetry disabled (server does not support it).');
-          return;
-        }
 
-        const now = Date.now();
-        if (now - lastTelemetryErrorAt >= 30_000) {
-          lastTelemetryErrorAt = now;
-          console.error('Telemetry upload failed:', error instanceof Error ? error.message : String(error));
-        }
-      });
+          const now = Date.now();
+          if (now - lastTelemetryErrorAt >= 30_000) {
+            lastTelemetryErrorAt = now;
+            console.error('Telemetry upload failed:', error instanceof Error ? error.message : String(error));
+          }
+        })
+        .finally(() => {
+          telemetryInFlight = null;
+        });
     }, 2_000);
 
     dependencies.processRef.once('SIGINT', onSigInt);
     dependencies.processRef.once('SIGTERM', onSigTerm);
 
-    const exitCode = await new Promise<number>((resolve, reject) => {
+    const exitResult = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
       child!.once('error', reject);
-      child!.once('exit', (code) => resolve(code ?? 0));
+      child!.once('exit', (code, signal) => resolve({ code, signal }));
     });
+
+    const exitCode =
+      exitResult.code ??
+      (shutdownSignal === 'SIGINT'
+        ? 130
+        : shutdownSignal === 'SIGTERM'
+          ? 143
+          : exitResult.signal
+            ? 1
+            : 0);
 
     if (exitCode !== 0 && !input.verbose && cloudflaredLogBuffer.length > 0) {
       dependencies.processRef.stderr.write('cloudflared exited unexpectedly. Last logs:\n');

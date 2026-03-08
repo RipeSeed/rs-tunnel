@@ -15,7 +15,7 @@ export async function registerTelemetryRoutes(app: FastifyInstance): Promise<voi
   app.post(
     '/tunnels/:id/telemetry',
     {
-      preHandler: app.authenticate,
+      preHandler: app.authenticateTunnelRuntime,
       config: {
         rateLimit: {
           max: 1200,
@@ -34,9 +34,12 @@ export async function registerTelemetryRoutes(app: FastifyInstance): Promise<voi
         throw new AppError(400, 'INVALID_INPUT', 'Invalid telemetry payload.', parsed.error.flatten());
       }
 
-      await app.services.telemetryService.ingestTelemetry({
-        userId: request.auth!.sub,
-        tunnelIdentifier: params.id,
+      if (request.tunnelRuntimeAuth?.tunnelId !== params.id) {
+        throw new AppError(403, 'FORBIDDEN', 'Tunnel runtime token does not match the requested tunnel.');
+      }
+
+      await app.services.telemetryService.ingestRuntimeTelemetry({
+        tunnelId: params.id,
         region: parsed.data.region ?? null,
         metrics: parsed.data.metrics,
         requests: parsed.data.requests,

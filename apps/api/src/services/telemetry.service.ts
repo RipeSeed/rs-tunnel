@@ -94,65 +94,18 @@ export class TelemetryService implements TelemetryServiceContract {
 
   constructor(private readonly repository: Repository) {}
 
-  async ingestTelemetry(input: {
-    userId: string;
-    tunnelIdentifier: string;
+  async ingestRuntimeTelemetry(input: {
+    tunnelId: string;
     region?: string | null;
     metrics: TunnelTelemetryMetrics;
     requests: TunnelTelemetryRequestEvent[];
   }): Promise<void> {
-    const tunnel = await this.repository.findTunnelForUser(input.userId, input.tunnelIdentifier);
-    if (!tunnel) {
-      throw new AppError(404, 'TUNNEL_NOT_FOUND', 'Tunnel was not found for this user.');
+    const tunnel = await this.repository.getTunnelById(input.tunnelId);
+    if (!tunnel || tunnel.status !== 'active') {
+      throw new AppError(404, 'TUNNEL_NOT_FOUND', 'Tunnel was not found or is no longer active.');
     }
 
-    const now = new Date();
-    const nowMs = now.getTime();
-    const region = normalizeRegion(input.region);
-    const metrics = normalizeMetrics(input.metrics);
-
-    await this.repository.upsertLiveTelemetry({
-      tunnelId: tunnel.id,
-      receivedAt: now,
-      region,
-      ...metrics,
-    });
-
-    const lastPointAtMs = this.lastMetricsPointAtMs.get(tunnel.id) ?? 0;
-    if (nowMs - lastPointAtMs >= METRICS_DOWNSAMPLE_MS) {
-      await this.repository.insertMetricsPoint({
-        tunnelId: tunnel.id,
-        capturedAt: now,
-        ...metrics,
-      });
-      this.lastMetricsPointAtMs.set(tunnel.id, nowMs);
-    }
-
-    const normalizedRequests = input.requests.map(normalizeRequestEvent);
-    await this.repository.insertRequestLogs(
-      tunnel.id,
-      now,
-      normalizedRequests.map((event) => ({
-        startedAt: new Date(event.startedAtEpochMs),
-        method: event.method,
-        path: event.path,
-        statusCode: event.statusCode,
-        durationMs: Math.max(0, Math.round(event.durationMs)),
-        responseBytes: event.responseBytes,
-        error: event.error,
-        protocol: event.protocol,
-      })),
-    );
-
-    if (nowMs - this.lastPrunedAtMs >= PRUNE_INTERVAL_MS) {
-      this.lastPrunedAtMs = nowMs;
-      const requestsOlderThan = new Date(nowMs - REQUEST_RETENTION_MS);
-      const metricsOlderThan = new Date(nowMs - METRICS_RETENTION_MS);
-
-      void this.repository.pruneTelemetry({ metricsOlderThan, requestsOlderThan }).catch((error) => {
-        logger.error('Telemetry prune failed', error);
-      });
-    }
+    await this.persistTelemetry(tunnel.id, input.region, input.metrics, input.requests);
   }
 
   async getLiveTelemetry(userId: string): Promise<TunnelLiveTelemetry[]> {
@@ -224,6 +177,61 @@ export class TelemetryService implements TelemetryServiceContract {
       error: row.error,
       protocol: row.protocol === 'ws' ? 'ws' : 'http',
     }));
+  }
+
+  private async persistTelemetry(
+    tunnelId: string,
+    regionInput: string | null | undefined,
+    metricsInput: TunnelTelemetryMetrics,
+    requestsInput: TunnelTelemetryRequestEvent[],
+  ): Promise<void> {
+    const now = new Date();
+    const nowMs = now.getTime();
+    const region = normalizeRegion(regionInput);
+    const metrics = normalizeMetrics(metricsInput);
+
+    await this.repository.upsertLiveTelemetry({
+      tunnelId,
+      receivedAt: now,
+      region,
+      ...metrics,
+    });
+
+    const lastPointAtMs = this.lastMetricsPointAtMs.get(tunnelId) ?? 0;
+    if (nowMs - lastPointAtMs >= METRICS_DOWNSAMPLE_MS) {
+      await this.repository.insertMetricsPoint({
+        tunnelId,
+        capturedAt: now,
+        ...metrics,
+      });
+      this.lastMetricsPointAtMs.set(tunnelId, nowMs);
+    }
+
+    const normalizedRequests = requestsInput.map(normalizeRequestEvent);
+    await this.repository.insertRequestLogs(
+      tunnelId,
+      now,
+      normalizedRequests.map((event) => ({
+        startedAt: new Date(event.startedAtEpochMs),
+        method: event.method,
+        path: event.path,
+        statusCode: event.statusCode,
+        durationMs: Math.max(0, Math.round(event.durationMs)),
+        responseBytes: event.responseBytes,
+        error: event.error,
+        protocol: event.protocol,
+      })),
+    );
+
+    if (nowMs - this.lastPrunedAtMs >= PRUNE_INTERVAL_MS) {
+      this.lastPrunedAtMs = nowMs;
+      const requestsOlderThan = new Date(nowMs - REQUEST_RETENTION_MS);
+      const metricsOlderThan = new Date(nowMs - METRICS_RETENTION_MS);
+
+      void this.repository.pruneTelemetry({ metricsOlderThan, requestsOlderThan }).catch((error) => {
+        logger.error('Telemetry prune failed', error);
+      });
+    }
   }
 }
 

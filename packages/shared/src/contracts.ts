@@ -20,8 +20,10 @@ export const tunnelCreateResponseSchema = z.object({
   tunnelId: z.string().uuid(),
   hostname: z.string(),
   cloudflaredToken: z.string(),
-  heartbeatIntervalSec: z.literal(20),
-});
+  tunnelRunToken: z.string().min(1),
+  heartbeatIntervalSec: z.number().int().positive(),
+  leaseTimeoutSec: z.number().int().positive(),
+}).strict();
 
 export type TunnelCreateResponse = z.infer<typeof tunnelCreateResponseSchema>;
 

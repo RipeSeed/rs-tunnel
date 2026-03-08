@@ -30,6 +30,10 @@ const env: Env = {
 };
 
 describe('cleanup idempotency', () => {
+  const tokenService = {
+    signTunnelRunToken: vi.fn(() => 'runtime-token'),
+  };
+
   it('does not throw when stopping a tunnel without dns/tunnel ids', async () => {
     const repository = {
       getTunnelById: vi.fn().mockResolvedValue({
@@ -54,6 +58,7 @@ describe('cleanup idempotency', () => {
       env,
       repository as unknown as Repository,
       cloudflare as unknown as CloudflareService,
+      tokenService as never,
     );
 
     await expect(service.stopTunnelById('11111111-1111-1111-1111-111111111111', 'cleanup')).resolves.toBeUndefined();
@@ -87,6 +92,7 @@ describe('cleanup idempotency', () => {
       env,
       repository as unknown as Repository,
       cloudflare as unknown as CloudflareService,
+      tokenService as never,
     );
 
     await expect(service.stopTunnelById('11111111-1111-1111-1111-111111111111', 'cleanup')).rejects.toThrow(/active connections/);
@@ -122,6 +128,7 @@ describe('cleanup idempotency', () => {
       env,
       repository as unknown as Repository,
       cloudflare as unknown as CloudflareService,
+      tokenService as never,
     );
 
     await expect(service.stopTunnelById('11111111-1111-1111-1111-111111111111', 'cleanup')).resolves.toBeUndefined();
@@ -158,6 +165,7 @@ describe('cleanup idempotency', () => {
       env,
       repository as unknown as Repository,
       cloudflare as unknown as CloudflareService,
+      tokenService as never,
     );
 
     await expect(service.stopTunnelById('11111111-1111-1111-1111-111111111111', 'cleanup')).rejects.toThrow(/Network error/);
@@ -166,5 +174,40 @@ describe('cleanup idempotency', () => {
     expect(cloudflare.deleteTunnelWithRetry).toHaveBeenCalledTimes(1);
     expect(repository.enqueueCleanupJob).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111', 'deletion_failed');
     expect(repository.markTunnelStopped).not.toHaveBeenCalled();
+  });
+
+  it('enqueues cleanup when DNS deletion fails before tunnel deletion', async () => {
+    const repository = {
+      getTunnelById: vi.fn().mockResolvedValue({
+        id: '11111111-1111-1111-1111-111111111111',
+        userId: '22222222-2222-2222-2222-222222222222',
+        status: 'active',
+        cfDnsRecordId: 'dns123',
+        cfTunnelId: 'tunnel123',
+      }),
+      markTunnelStopping: vi.fn().mockResolvedValue(undefined),
+      deleteLease: vi.fn().mockResolvedValue(undefined),
+      markTunnelStopped: vi.fn().mockResolvedValue(undefined),
+      createAuditLog: vi.fn().mockResolvedValue(undefined),
+      enqueueCleanupJob: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const cloudflare = {
+      deleteDnsRecord: vi.fn().mockRejectedValue(new Error('DNS delete failed')),
+      deleteTunnelWithRetry: vi.fn(),
+    };
+
+    const service = new TunnelService(
+      env,
+      repository as unknown as Repository,
+      cloudflare as unknown as CloudflareService,
+      tokenService as never,
+    );
+
+    await expect(service.stopTunnelById('11111111-1111-1111-1111-111111111111', 'cleanup')).rejects.toThrow(
+      /DNS delete failed/,
+    );
+    expect(repository.enqueueCleanupJob).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111', 'dns_deletion_failed');
+    expect(cloudflare.deleteTunnelWithRetry).not.toHaveBeenCalled();
   });
 });

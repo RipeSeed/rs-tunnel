@@ -2,7 +2,9 @@ import { logger } from '../lib/logger.js';
 import { CleanupService } from '../services/cleanup.service.js';
 
 export class ReaperWorker {
-  private intervalHandle?: NodeJS.Timeout;
+  private timeoutHandle?: NodeJS.Timeout;
+  private isRunning = false;
+  private stopped = true;
 
   constructor(
     private readonly cleanupService: CleanupService,
@@ -10,23 +12,46 @@ export class ReaperWorker {
   ) {}
 
   start(): void {
-    if (this.intervalHandle) {
+    if (!this.stopped) {
       return;
     }
 
-    this.intervalHandle = setInterval(() => {
-      this.tick().catch((error) => {
-        logger.error('Reaper tick failed', error);
-      });
-    }, this.intervalSec * 1000);
-
-    void this.tick();
+    this.stopped = false;
+    this.scheduleNextTick(0);
   }
 
   stop(): void {
-    if (this.intervalHandle) {
-      clearInterval(this.intervalHandle);
-      this.intervalHandle = undefined;
+    this.stopped = true;
+    if (this.timeoutHandle) {
+      clearTimeout(this.timeoutHandle);
+      this.timeoutHandle = undefined;
+    }
+  }
+
+  private scheduleNextTick(delayMs: number): void {
+    if (this.stopped) {
+      return;
+    }
+
+    this.timeoutHandle = setTimeout(() => {
+      void this.runTick();
+    }, delayMs);
+  }
+
+  private async runTick(): Promise<void> {
+    if (this.stopped || this.isRunning) {
+      return;
+    }
+
+    this.isRunning = true;
+
+    try {
+      await this.tick();
+    } catch (error) {
+      logger.error('Reaper tick failed', error);
+    } finally {
+      this.isRunning = false;
+      this.scheduleNextTick(this.intervalSec * 1000);
     }
   }
 

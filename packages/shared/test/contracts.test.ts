@@ -1,8 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
-import { tunnelListResponseSchema, tunnelTelemetryIngestRequestSchema } from '../src/contracts.ts';
+import { tunnelCreateResponseSchema, tunnelListResponseSchema, tunnelTelemetryIngestRequestSchema } from '../src/contracts.ts';
 
 describe('shared contracts', () => {
+  it('accepts tunnel creation responses with runtime auth fields', () => {
+    const parsed = tunnelCreateResponseSchema.parse({
+      tunnelId: '11111111-1111-1111-1111-111111111111',
+      hostname: 'demo.tunnel.example.com',
+      cloudflaredToken: 'cf-token',
+      tunnelRunToken: 'run-token',
+      heartbeatIntervalSec: 20,
+      leaseTimeoutSec: 60,
+    });
+
+    expect(parsed.tunnelRunToken).toBe('run-token');
+    expect(parsed.heartbeatIntervalSec).toBe(20);
+    expect(parsed.leaseTimeoutSec).toBe(60);
+  });
+
   it('accepts tunnel list entries with lease null or object', () => {
     const parsed = tunnelListResponseSchema.parse([
       {
