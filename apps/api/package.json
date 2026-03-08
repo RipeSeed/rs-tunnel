@@ -1,6 +1,6 @@
 {
   "name": "@ripeseed/api",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "private": true,
   "description": "Fastify API for rs-tunnel authentication, Cloudflare tunnel lifecycle, and DNS management.",
   "license": "MIT",
