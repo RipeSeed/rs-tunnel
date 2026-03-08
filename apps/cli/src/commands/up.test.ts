@@ -69,7 +69,9 @@ describe('upCommand', () => {
         tunnelId: 'tunnel-id',
         hostname: 'demo.tunnel.example.com',
         cloudflaredToken: 'cf-token',
+        tunnelRunToken: 'run-token',
         heartbeatIntervalSec: 20 as const,
+        leaseTimeoutSec: 60,
       })),
       stopTunnel: vi.fn(async () => {}),
       heartbeat: vi.fn(async () => ({ expiresAt: '2026-01-01T00:00:00.000Z' })),
@@ -178,7 +180,9 @@ describe('upCommand', () => {
         tunnelId: 'tunnel-id',
         hostname: 'demo.tunnel.example.com',
         cloudflaredToken: 'cf-token',
+        tunnelRunToken: 'run-token',
         heartbeatIntervalSec: 20 as const,
+        leaseTimeoutSec: 60,
       })),
       stopTunnel: vi.fn(async () => {}),
       heartbeat: vi.fn(async () => ({ expiresAt: '2026-01-01T00:00:00.000Z' })),
@@ -260,7 +264,9 @@ describe('upCommand', () => {
         tunnelId: 'tunnel-id',
         hostname: 'demo.tunnel.example.com',
         cloudflaredToken: 'cf-token',
+        tunnelRunToken: 'run-token',
         heartbeatIntervalSec: 20 as const,
+        leaseTimeoutSec: 60,
       })),
       stopTunnel: vi.fn(async () => {}),
       heartbeat: vi.fn(async () => {
@@ -318,6 +324,7 @@ describe('upCommand', () => {
     heartbeatInterval.fn();
     await new Promise<void>((resolve) => setImmediate(resolve));
 
+    expect(apiClient.heartbeat).toHaveBeenCalledWith('run-token', 'tunnel-id');
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('Heartbeat failed (status=500, code=INTERNAL_ERROR): Unexpected server error'),
     );
@@ -345,7 +352,9 @@ describe('upCommand', () => {
         tunnelId: 'tunnel-id',
         hostname: 'demo.tunnel.example.com',
         cloudflaredToken: 'cf-token',
+        tunnelRunToken: 'run-token',
         heartbeatIntervalSec: 20 as const,
+        leaseTimeoutSec: 60,
       })),
       stopTunnel: vi.fn(async () => {}),
       heartbeat: vi.fn(async () => ({ expiresAt: '2026-01-01T00:00:00.000Z' })),
@@ -437,7 +446,9 @@ describe('upCommand', () => {
           tunnelId: 'tunnel-id',
           hostname: 'demo.tunnel.example.com',
           cloudflaredToken: 'cf-token',
+          tunnelRunToken: 'run-token',
           heartbeatIntervalSec: 20 as const,
+          leaseTimeoutSec: 60,
         })),
         stopTunnel: vi.fn(async () => {}),
         heartbeat: vi.fn(async () => ({ expiresAt: '2026-01-01T00:00:00.000Z' })),
@@ -511,7 +522,9 @@ describe('upCommand', () => {
         tunnelId: 'tunnel-id',
         hostname: 'demo.tunnel.example.com',
         cloudflaredToken: 'cf-token',
+        tunnelRunToken: 'run-token',
         heartbeatIntervalSec: 20 as const,
+        leaseTimeoutSec: 60,
       })),
       stopTunnel: vi.fn(async () => {}),
       heartbeat: vi.fn(async () => ({ expiresAt: '2026-01-01T00:00:00.000Z' })),
@@ -567,8 +580,105 @@ describe('upCommand', () => {
 
     expect(child.kill).toHaveBeenCalledWith('SIGINT');
     expect(apiClient.stopTunnel).toHaveBeenCalledTimes(1);
+    expect(child.kill.mock.invocationCallOrder[0] ?? 0).toBeLessThan(
+      apiClient.stopTunnel.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
     expect(proxyStop).toHaveBeenCalledTimes(1);
     expect(dashboard.stop).toHaveBeenCalledTimes(1);
     expect((processRef.exit as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toBe(130);
+  });
+
+  it('does not overlap heartbeats while one is still in flight', async () => {
+    const child = createFakeChildProcess();
+    const dashboard = {
+      setRegion: vi.fn(),
+      setMetrics: vi.fn(),
+      addRequest: vi.fn(),
+      addCloudflaredLine: vi.fn(),
+      addMessage: vi.fn(),
+      stop: vi.fn(),
+    };
+
+    let resolveHeartbeat: (() => void) | undefined;
+    const heartbeatPromise = new Promise<{ expiresAt: string }>((resolve) => {
+      resolveHeartbeat = () => resolve({ expiresAt: '2026-01-01T00:00:00.000Z' });
+    });
+
+    const apiClient = {
+      refreshTokens: vi.fn(),
+      createTunnel: vi.fn(async () => ({
+        tunnelId: 'tunnel-id',
+        hostname: 'demo.tunnel.example.com',
+        cloudflaredToken: 'cf-token',
+        tunnelRunToken: 'run-token',
+        heartbeatIntervalSec: 20 as const,
+        leaseTimeoutSec: 60,
+      })),
+      stopTunnel: vi.fn(async () => {}),
+      heartbeat: vi.fn(() => heartbeatPromise),
+      ingestTelemetry: vi.fn(async () => {}),
+    };
+
+    const { processRef } = createProcessRef();
+    const intervalCallbacks: Array<{ ms: number; fn: () => void }> = [];
+    const setIntervalFn = vi.fn((fn: () => void, ms: number) => {
+      intervalCallbacks.push({ fn, ms });
+      return intervalCallbacks.length as unknown as NodeJS.Timeout;
+    });
+
+    const runPromise = upCommand(
+      { port: 3000, verbose: false },
+      {
+        createApiClient: () => apiClient as never,
+        requireSession: vi.fn(async () => ({
+          accessToken: 'access',
+          refreshToken: 'refresh',
+          expiresAtEpochSec: 1,
+          profile: {
+            email: 'osama@example.com',
+            slackUserId: 'U1',
+            slackTeamId: 'TRIPESEED',
+          },
+        })),
+        saveSession: vi.fn(async () => {}),
+        ensureCloudflaredInstalled: vi.fn(async () => '/usr/local/bin/cloudflared'),
+        startLocalProxy: vi.fn(async () => ({
+          port: 4545,
+          stop: vi.fn(async () => {}),
+        })),
+        createUpDashboard: vi.fn(() => dashboard),
+        getCliVersion: vi.fn(() => '0.1.0'),
+        spawn: vi.fn(() => child) as never,
+        processRef: processRef as never,
+        setInterval: setIntervalFn as never,
+        clearInterval: vi.fn(),
+      },
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const heartbeatInterval = intervalCallbacks.find((interval) => interval.ms === 20_000);
+    if (!heartbeatInterval) {
+      throw new Error('Expected heartbeat interval to be registered.');
+    }
+
+    heartbeatInterval.fn();
+    heartbeatInterval.fn();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(apiClient.heartbeat).toHaveBeenCalledTimes(1);
+
+    if (resolveHeartbeat) {
+      resolveHeartbeat();
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    heartbeatInterval.fn();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(apiClient.heartbeat).toHaveBeenCalledTimes(2);
+
+    child.emit('exit', 0);
+    await runPromise;
   });
 });

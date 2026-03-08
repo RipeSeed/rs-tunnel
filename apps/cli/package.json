@@ -1,6 +1,6 @@
 {
   "name": "@ripeseed/rs-tunnel",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "CLI for running secure public tunnels to localhost through Cloudflare.",
   "license": "MIT",
   "repository": {

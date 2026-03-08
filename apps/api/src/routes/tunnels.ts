@@ -36,15 +36,18 @@ export async function registerTunnelRoutes(app: FastifyInstance): Promise<void> 
     },
   );
 
-  app.post('/tunnels/:id/heartbeat', { preHandler: app.authenticate }, async (request) => {
+  app.post('/tunnels/:id/heartbeat', { preHandler: app.authenticateTunnelRuntime }, async (request) => {
     const params = request.params as { id?: string };
     if (!params.id) {
       throw new AppError(400, 'INVALID_TUNNEL_ID', 'Tunnel identifier is required.');
     }
 
-    const result = await app.services.tunnelService.heartbeat({
-      userId: request.auth!.sub,
-      tunnelIdentifier: params.id,
+    if (request.tunnelRuntimeAuth?.tunnelId !== params.id) {
+      throw new AppError(403, 'FORBIDDEN', 'Tunnel runtime token does not match the requested tunnel.');
+    }
+
+    const result = await app.services.tunnelService.heartbeatTunnel({
+      tunnelId: params.id,
     });
 
     return {

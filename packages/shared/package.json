@@ -1,6 +1,6 @@
 {
   "name": "@ripeseed/shared",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "private": false,
   "description": "Shared Zod schemas and TypeScript contracts for rs-tunnel services and clients.",
   "license": "MIT",

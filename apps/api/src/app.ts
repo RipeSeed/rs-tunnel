@@ -24,16 +24,24 @@ export function buildApp(input: BuildAppInput): FastifyInstance {
     logger: input.env.NODE_ENV !== 'test',
   });
 
+  const readBearerToken = (authorization: string | undefined, missingMessage: string): string => {
+    if (!authorization || !authorization.startsWith('Bearer ')) {
+      throw new AppError(401, 'MISSING_AUTH', missingMessage);
+    }
+
+    return authorization.slice('Bearer '.length).trim();
+  };
+
   app.decorate('services', input.services);
 
   app.decorate('authenticate', async (request) => {
-    const authHeader = request.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new AppError(401, 'MISSING_AUTH', 'Missing bearer access token.');
-    }
-
-    const token = authHeader.slice('Bearer '.length).trim();
+    const token = readBearerToken(request.headers.authorization, 'Missing bearer access token.');
     request.auth = input.services.tokenService.verifyAccessToken(token);
+  });
+
+  app.decorate('authenticateTunnelRuntime', async (request) => {
+    const token = readBearerToken(request.headers.authorization, 'Missing bearer tunnel runtime token.');
+    request.tunnelRuntimeAuth = input.services.tokenService.verifyTunnelRunToken(token);
   });
 
   app.register(cors, { origin: true });

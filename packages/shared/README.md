@@ -33,7 +33,9 @@ const response = tunnelCreateResponseSchema.parse({
   tunnelId: '11111111-1111-1111-1111-111111111111',
   hostname: 'my-app.tunnel.example.com',
   cloudflaredToken: 'token',
+  tunnelRunToken: 'runtime-token',
   heartbeatIntervalSec: 20,
+  leaseTimeoutSec: 60,
 });
 
 const typed: TunnelCreateResponse = response;

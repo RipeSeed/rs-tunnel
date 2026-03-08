@@ -20,17 +20,23 @@ export declare const tunnelCreateResponseSchema: z.ZodObject<{
     tunnelId: z.ZodString;
     hostname: z.ZodString;
     cloudflaredToken: z.ZodString;
-    heartbeatIntervalSec: z.ZodLiteral<20>;
-}, "strip", z.ZodTypeAny, {
+    tunnelRunToken: z.ZodString;
+    heartbeatIntervalSec: z.ZodNumber;
+    leaseTimeoutSec: z.ZodNumber;
+}, "strict", z.ZodTypeAny, {
     tunnelId: string;
     hostname: string;
     cloudflaredToken: string;
-    heartbeatIntervalSec: 20;
+    tunnelRunToken: string;
+    heartbeatIntervalSec: number;
+    leaseTimeoutSec: number;
 }, {
     tunnelId: string;
     hostname: string;
     cloudflaredToken: string;
-    heartbeatIntervalSec: 20;
+    tunnelRunToken: string;
+    heartbeatIntervalSec: number;
+    leaseTimeoutSec: number;
 }>;
 export type TunnelCreateResponse = z.infer<typeof tunnelCreateResponseSchema>;
 export declare const apiErrorSchema: z.ZodObject<{

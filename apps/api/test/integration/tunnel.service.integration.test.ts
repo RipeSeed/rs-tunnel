@@ -56,6 +56,10 @@ describe('TunnelService integration behaviors', () => {
     deleteTunnelWithRetry: vi.fn(),
   };
 
+  const tokenService = {
+    signTunnelRunToken: vi.fn(() => 'runtime-token'),
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -76,6 +80,7 @@ describe('TunnelService integration behaviors', () => {
       env,
       repository as unknown as Repository,
       cloudflare as unknown as CloudflareService,
+      tokenService as never,
     );
 
     const result = await service.createTunnel({
@@ -86,8 +91,14 @@ describe('TunnelService integration behaviors', () => {
 
     expect(result.hostname).toBe('demo-app.tunnel.example.com');
     expect(result.cloudflaredToken).toBe('cloudflared-token');
+    expect(result.tunnelRunToken).toBe('runtime-token');
+    expect(result.heartbeatIntervalSec).toBe(20);
+    expect(result.leaseTimeoutSec).toBe(60);
     expect(cloudflare.configureTunnel).toHaveBeenCalledTimes(1);
     expect(cloudflare.createDnsRecord).toHaveBeenCalledTimes(1);
+    expect(tokenService.signTunnelRunToken).toHaveBeenCalledWith({
+      tunnelId: '11111111-1111-1111-1111-111111111111',
+    });
   });
 
   it('returns conflict when requested slug is already active', async () => {
@@ -98,6 +109,7 @@ describe('TunnelService integration behaviors', () => {
       env,
       repository as unknown as Repository,
       cloudflare as unknown as CloudflareService,
+      tokenService as never,
     );
 
     await expect(
@@ -123,6 +135,7 @@ describe('TunnelService integration behaviors', () => {
       env,
       repository as unknown as Repository,
       cloudflare as unknown as CloudflareService,
+      tokenService as never,
     );
 
     await service.stopTunnel({
@@ -152,6 +165,7 @@ describe('TunnelService integration behaviors', () => {
       env,
       repository as unknown as Repository,
       cloudflare as unknown as CloudflareService,
+      tokenService as never,
     );
 
     // Create first tunnel
@@ -182,5 +196,46 @@ describe('TunnelService integration behaviors', () => {
 
     expect(result.hostname).toBe('my-app.tunnel.example.com');
     expect(result.cloudflaredToken).toBe('token-2');
+  });
+
+  it('extends lease for active tunnels via runtime heartbeat', async () => {
+    repository.getTunnelById.mockResolvedValue({
+      id: '11111111-1111-1111-1111-111111111111',
+      status: 'active',
+    });
+
+    const service = new TunnelService(
+      env,
+      repository as unknown as Repository,
+      cloudflare as unknown as CloudflareService,
+      tokenService as never,
+    );
+
+    const result = await service.heartbeatTunnel({
+      tunnelId: '11111111-1111-1111-1111-111111111111',
+    });
+
+    expect(result.expiresAt).toMatch(/2026|20\d\d/);
+    expect(repository.upsertLease).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects runtime heartbeat for stopping tunnels', async () => {
+    repository.getTunnelById.mockResolvedValue({
+      id: '11111111-1111-1111-1111-111111111111',
+      status: 'stopping',
+    });
+
+    const service = new TunnelService(
+      env,
+      repository as unknown as Repository,
+      cloudflare as unknown as CloudflareService,
+      tokenService as never,
+    );
+
+    await expect(
+      service.heartbeatTunnel({
+        tunnelId: '11111111-1111-1111-1111-111111111111',
+      }),
+    ).rejects.toThrowError(/no longer active/i);
   });
 });

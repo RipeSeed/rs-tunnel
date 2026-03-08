@@ -92,18 +92,28 @@ export class ApiClient {
   async logout(accessToken: string, refreshToken?: string): Promise<void> {
     await this.request('/v1/auth/logout', {
       method: 'POST',
-      accessToken,
+      bearerToken: accessToken,
       body: {
         refreshToken,
       },
     });
   }
 
-  async createTunnel(accessToken: string, input: { port: number; requestedSlug?: string }) {
+  async createTunnel(
+    accessToken: string,
+    input: { port: number; requestedSlug?: string },
+  ): Promise<{
+    tunnelId: string;
+    hostname: string;
+    cloudflaredToken: string;
+    tunnelRunToken: string;
+    heartbeatIntervalSec: number;
+    leaseTimeoutSec: number;
+  }> {
     const body = tunnelCreateRequestSchema.parse(input);
     const response = await this.request('/v1/tunnels', {
       method: 'POST',
-      accessToken,
+      bearerToken: accessToken,
       body,
     });
 
@@ -113,16 +123,16 @@ export class ApiClient {
   async listTunnels(accessToken: string) {
     const response = await this.request('/v1/tunnels', {
       method: 'GET',
-      accessToken,
+      bearerToken: accessToken,
     });
 
     return tunnelListResponseSchema.parse(response);
   }
 
-  async heartbeat(accessToken: string, tunnelIdOrHostname: string): Promise<{ expiresAt: string }> {
-    const response = await this.request(`/v1/tunnels/${encodeURIComponent(tunnelIdOrHostname)}/heartbeat`, {
+  async heartbeat(tunnelRunToken: string, tunnelId: string): Promise<{ expiresAt: string }> {
+    const response = await this.request(`/v1/tunnels/${encodeURIComponent(tunnelId)}/heartbeat`, {
       method: 'POST',
-      accessToken,
+      bearerToken: tunnelRunToken,
     });
 
     const parsed = heartbeatResponseSchema.parse(response);
@@ -130,14 +140,14 @@ export class ApiClient {
   }
 
   async ingestTelemetry(
-    accessToken: string,
-    tunnelIdOrHostname: string,
+    tunnelRunToken: string,
+    tunnelId: string,
     input: TunnelTelemetryIngestRequest,
   ): Promise<void> {
     const body = tunnelTelemetryIngestRequestSchema.parse(input);
-    const response = await this.request(`/v1/tunnels/${encodeURIComponent(tunnelIdOrHostname)}/telemetry`, {
+    const response = await this.request(`/v1/tunnels/${encodeURIComponent(tunnelId)}/telemetry`, {
       method: 'POST',
-      accessToken,
+      bearerToken: tunnelRunToken,
       body,
     });
 
@@ -147,7 +157,7 @@ export class ApiClient {
   async stopTunnel(accessToken: string, tunnelIdOrHostname: string): Promise<void> {
     await this.request(`/v1/tunnels/${encodeURIComponent(tunnelIdOrHostname)}`, {
       method: 'DELETE',
-      accessToken,
+      bearerToken: accessToken,
     });
   }
 
@@ -155,18 +165,23 @@ export class ApiClient {
     path: string,
     init: {
       method: string;
-      accessToken?: string;
+      bearerToken?: string;
       body?: unknown;
     },
   ): Promise<unknown> {
     let response: Response;
     try {
+      const headers: Record<string, string> = {
+        ...(init.bearerToken ? { Authorization: `Bearer ${init.bearerToken}` } : {}),
+      };
+
+      if (init.body !== undefined) {
+        headers['Content-Type'] = 'application/json';
+      }
+
       response = await fetch(`${this.baseUrl}${path}`, {
         method: init.method,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(init.accessToken ? { Authorization: `Bearer ${init.accessToken}` } : {}),
-        },
+        headers,
         body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
       });
     } catch (error) {
