@@ -1,5 +1,7 @@
 import {
   authExchangeRequestSchema,
+  authStatusRequestSchema,
+  authStatusResponseSchema,
   authStartRequestSchema,
   refreshRequestSchema,
 } from '@ripeseed/shared';
@@ -45,13 +47,49 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       throw new AppError(400, 'MISSING_OAUTH_PARAMS', 'Slack OAuth callback is missing state or code.');
     }
 
-    const { redirectUrl } = await app.services.authService.handleSlackCallback({
+    await app.services.authService.handleSlackCallback({
       state: query.state,
       code: query.code,
     });
 
-    return reply.redirect(redirectUrl);
+    return reply
+      .type('text/html; charset=utf-8')
+      .send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>rs-tunnel Login Complete</title>
+  </head>
+  <body>
+    <main style="max-width: 32rem; margin: 4rem auto; padding: 0 1rem; font-family: sans-serif; line-height: 1.5;">
+      <h1 style="font-size: 1.5rem; margin-bottom: 0.75rem;">Login complete</h1>
+      <p>You can return to your terminal. rs-tunnel will finish signing you in automatically.</p>
+    </main>
+  </body>
+</html>`);
   });
+
+  app.post(
+    '/auth/slack/status',
+    {
+      config: {
+        rateLimit: {
+          max: 120,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (request) => {
+      const parsed = authStatusRequestSchema.safeParse(request.body);
+
+      if (!parsed.success) {
+        throw new AppError(400, 'INVALID_INPUT', 'Invalid auth status request payload.', parsed.error.flatten());
+      }
+
+      return authStatusResponseSchema.parse(await app.services.authService.getSlackAuthStatus(parsed.data));
+    },
+  );
 
   app.post(
     '/auth/exchange',

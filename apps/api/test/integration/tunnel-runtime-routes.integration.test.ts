@@ -67,6 +67,7 @@ describe('runtime tunnel routes', () => {
     const authService = {
       startSlackAuth: vi.fn(),
       handleSlackCallback: vi.fn(),
+      getSlackAuthStatus: vi.fn(),
       exchangeLoginCode: vi.fn(),
       refreshTokens: vi.fn(),
       logout: vi.fn(),

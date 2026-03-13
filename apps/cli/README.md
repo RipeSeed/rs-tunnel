@@ -16,6 +16,7 @@ export RS_TUNNEL_API_URL=https://api.your-domain.com
 
 # authenticate
 rs-tunnel login --email you@your-company.com
+rs-tunnel login --email you@your-company.com --skip-browser-open
 
 # expose local app on port 3000
 rs-tunnel up --port 3000
@@ -26,7 +27,7 @@ If no API URL is configured, the CLI prompts once and stores it in `~/.rs-tunnel
 ## Commands
 
 ```bash
-rs-tunnel login --email <email> [--domain <api-url>]
+rs-tunnel login --email <email> [--skip-browser-open] [--domain <api-url>]
 rs-tunnel up --port <port> [--url <slug>] [--verbose] [--domain <api-url>]
 rs-tunnel list [--domain <api-url>]
 rs-tunnel stop <tunnel-id-or-hostname> [--domain <api-url>]
@@ -39,6 +40,7 @@ rs-tunnel doctor [--domain <api-url>]
 - `RS_TUNNEL_API_URL`: preferred API base URL override.
 - `RS_TUNNEL_API_BASE_URL`: legacy alias (still supported).
 - `--domain`: command-level API override; also persists for future commands.
+- `--skip-browser-open`: skips automatically launching a browser, prints the Slack authorize URL, and keeps waiting for the API-side auth flow to complete.
 
 ## Notes
 
@@ -54,4 +56,3 @@ rs-tunnel doctor [--domain <api-url>]
 
 - Monorepo: https://github.com/RipeSeed/rs-tunnel
 - Full project docs: https://github.com/RipeSeed/rs-tunnel/blob/main/README.md
-

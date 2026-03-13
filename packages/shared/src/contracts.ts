@@ -46,13 +46,25 @@ export type UserProfile = z.infer<typeof userProfileSchema>;
 export const authStartRequestSchema = z.object({
   email: z.string().email(),
   codeChallenge: z.string().min(10),
-  cliCallbackUrl: z.string().url(),
 });
 
 export const authStartResponseSchema = z.object({
   authorizeUrl: z.string().url(),
   state: z.string(),
 });
+
+export const authStatusRequestSchema = z
+  .object({
+    state: z.string().min(10),
+  })
+  .strict();
+
+export const authStatusResponseSchema = z
+  .object({
+    status: z.enum(['pending', 'authorized', 'expired']),
+    loginCode: z.string().min(10).optional(),
+  })
+  .strict();
 
 export const authExchangeRequestSchema = z.object({
   loginCode: z.string().min(10),
