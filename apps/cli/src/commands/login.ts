@@ -6,12 +6,38 @@ import { startCallbackServer } from '../lib/local-callback.js';
 import { createPkcePair } from '../lib/pkce.js';
 import { saveSession } from '../store/credentials.js';
 
-export async function loginCommand(email: string): Promise<void> {
-  const config = getCliConfig();
+export type LoginCommandOptions = {
+  printAuthUrl?: boolean;
+};
 
-  const apiClient = new ApiClient(config.apiBaseUrl);
-  const callbackServer = await startCallbackServer();
-  const pkce = createPkcePair();
+type LoginCommandDependencies = {
+  getCliConfig: typeof getCliConfig;
+  createApiClient: (baseUrl: string) => ApiClient;
+  startCallbackServer: typeof startCallbackServer;
+  createPkcePair: typeof createPkcePair;
+  openUrl: (url: string) => Promise<unknown>;
+  saveSession: typeof saveSession;
+};
+
+const defaultDependencies: LoginCommandDependencies = {
+  getCliConfig,
+  createApiClient: (baseUrl: string) => new ApiClient(baseUrl),
+  startCallbackServer,
+  createPkcePair,
+  openUrl: (url: string) => open(url),
+  saveSession,
+};
+
+export async function loginCommand(
+  email: string,
+  options: LoginCommandOptions = {},
+  dependencies: LoginCommandDependencies = defaultDependencies,
+): Promise<void> {
+  const config = dependencies.getCliConfig();
+
+  const apiClient = dependencies.createApiClient(config.apiBaseUrl);
+  const callbackServer = await dependencies.startCallbackServer();
+  const pkce = dependencies.createPkcePair();
 
   try {
     const auth = await apiClient.startSlackAuth({
@@ -20,10 +46,14 @@ export async function loginCommand(email: string): Promise<void> {
       cliCallbackUrl: callbackServer.callbackUrl,
     });
 
-    try {
-      await open(auth.authorizeUrl);
-    } catch {
-      console.log(`Open this URL in your browser:\n${auth.authorizeUrl}`);
+    if (options.printAuthUrl) {
+      console.log(`Auth URL: ${auth.authorizeUrl}`);
+    } else {
+      try {
+        await dependencies.openUrl(auth.authorizeUrl);
+      } catch {
+        console.log(`Open this URL in your browser:\n${auth.authorizeUrl}`);
+      }
     }
 
     console.log('Waiting for Slack OAuth callback...');
@@ -39,7 +69,7 @@ export async function loginCommand(email: string): Promise<void> {
       codeVerifier: pkce.verifier,
     });
 
-    await saveSession({
+    await dependencies.saveSession({
       accessToken: tokenPair.accessToken,
       refreshToken: tokenPair.refreshToken,
       expiresAtEpochSec: Math.floor(Date.now() / 1000) + tokenPair.expiresInSec,

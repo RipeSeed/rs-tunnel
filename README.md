@@ -123,6 +123,7 @@ pnpm --filter @ripeseed/api dev
 export RS_TUNNEL_API_URL=http://localhost:8080
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts doctor
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts login --email you@example.com
+pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts login --email you@example.com --print-auth-url
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts up --port 3000 --url my-app
 ```
 
@@ -130,6 +131,7 @@ pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts up --port 3000 --url my-
 
 ```bash
 rs-tunnel login --email you@example.com
+rs-tunnel login --email you@example.com --print-auth-url
 rs-tunnel up --port 3000
 rs-tunnel up --port 3000 --url my-app
 rs-tunnel up --port 3000 --verbose
@@ -153,6 +155,7 @@ Important:
 - `--domain` applies immediately to the current command and is also saved locally for future commands.
 - On first run (if no env/domain is configured), CLI prompts for the API domain and saves it to `~/.rs-tunnel/config.json`.
 - For global shell-level config, set `RS_TUNNEL_API_URL`.
+- `rs-tunnel login --print-auth-url` prints the Slack authorize URL and keeps waiting for the local callback, which is useful when another tool needs to forward the link to the user.
 
 ## Runtime dashboard (`up`)
 
