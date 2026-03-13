@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { loginCommand } from './login.js';
 
+type LoginDependencies = NonNullable<Parameters<typeof loginCommand>[2]>;
+
 describe('loginCommand', () => {
   it('prints the auth URL for external forwarding when requested', async () => {
     const startSlackAuth = vi.fn(async () => ({
@@ -13,7 +15,7 @@ describe('loginCommand', () => {
       refreshToken: 'refresh-token',
       expiresInSec: 900,
       profile: {
-        email: 'osama@example.com',
+        email: 'test@example.com',
         slackUserId: 'U1',
         slackTeamId: 'T1',
       },
@@ -26,33 +28,29 @@ describe('loginCommand', () => {
     const saveSession = vi.fn(async () => {});
     const openUrl = vi.fn(async () => {});
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const dependencies: LoginDependencies = {
+      getCliConfig: () => ({ apiBaseUrl: 'https://api.example.com' }),
+      createApiClient: () => ({
+        startSlackAuth,
+        exchangeLoginCode,
+      }),
+      startCallbackServer: vi.fn(async () => ({
+        callbackUrl: 'http://127.0.0.1:7777/callback',
+        waitForCode,
+        close,
+      })),
+      createPkcePair: () => ({
+        verifier: 'verifier-value',
+        challenge: 'challenge-value',
+      }),
+      openUrl,
+      saveSession,
+    };
 
     try {
-      await loginCommand(
-        'osama@example.com',
-        { printAuthUrl: true },
-        {
-          getCliConfig: () => ({ apiBaseUrl: 'https://api.example.com' }),
-          createApiClient: () =>
-            ({
-              startSlackAuth,
-              exchangeLoginCode,
-            }) as never,
-          startCallbackServer: vi.fn(async () => ({
-            callbackUrl: 'http://127.0.0.1:7777/callback',
-            waitForCode,
-            close,
-          })),
-          createPkcePair: () => ({
-            verifier: 'verifier-value',
-            challenge: 'challenge-value',
-          }),
-          openUrl,
-          saveSession,
-        },
-      );
+      await loginCommand('test@example.com', { printAuthUrl: true }, dependencies);
       expect(startSlackAuth).toHaveBeenCalledWith({
-        email: 'osama@example.com',
+        email: 'test@example.com',
         codeChallenge: 'challenge-value',
         cliCallbackUrl: 'http://127.0.0.1:7777/callback',
       });
@@ -67,13 +65,13 @@ describe('loginCommand', () => {
           accessToken: 'access-token',
           refreshToken: 'refresh-token',
           profile: expect.objectContaining({
-            email: 'osama@example.com',
+            email: 'test@example.com',
           }),
         }),
       );
-      expect(logSpy).toHaveBeenCalledWith('Auth URL: https://slack.example.com/auth');
+      expect(logSpy).toHaveBeenCalledWith('Slack Auth URL: https://slack.example.com/auth');
       expect(logSpy).toHaveBeenCalledWith('Waiting for Slack OAuth callback...');
-      expect(logSpy).toHaveBeenCalledWith('Logged in as osama@example.com');
+      expect(logSpy).toHaveBeenCalledWith('Logged in as test@example.com');
       expect(close).toHaveBeenCalledTimes(1);
     } finally {
       logSpy.mockRestore();
@@ -83,48 +81,44 @@ describe('loginCommand', () => {
   it('opens the browser by default', async () => {
     const openUrl = vi.fn(async () => {});
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const dependencies: LoginDependencies = {
+      getCliConfig: () => ({ apiBaseUrl: 'https://api.example.com' }),
+      createApiClient: () => ({
+        startSlackAuth: vi.fn(async () => ({
+          authorizeUrl: 'https://slack.example.com/auth',
+          state: 'expected-state',
+        })),
+        exchangeLoginCode: vi.fn(async () => ({
+          accessToken: 'access-token',
+          refreshToken: 'refresh-token',
+          expiresInSec: 900,
+          profile: {
+            email: 'test@example.com',
+            slackUserId: 'U1',
+            slackTeamId: 'T1',
+          },
+        })),
+      }),
+      startCallbackServer: vi.fn(async () => ({
+        callbackUrl: 'http://127.0.0.1:7777/callback',
+        waitForCode: vi.fn(async () => ({
+          code: 'login-code',
+          state: 'expected-state',
+        })),
+        close: vi.fn(async () => {}),
+      })),
+      createPkcePair: () => ({
+        verifier: 'verifier-value',
+        challenge: 'challenge-value',
+      }),
+      openUrl,
+      saveSession: vi.fn(async () => {}),
+    };
 
     try {
-      await loginCommand(
-        'osama@example.com',
-        {},
-        {
-          getCliConfig: () => ({ apiBaseUrl: 'https://api.example.com' }),
-          createApiClient: () =>
-            ({
-              startSlackAuth: vi.fn(async () => ({
-                authorizeUrl: 'https://slack.example.com/auth',
-                state: 'expected-state',
-              })),
-              exchangeLoginCode: vi.fn(async () => ({
-                accessToken: 'access-token',
-                refreshToken: 'refresh-token',
-                expiresInSec: 900,
-                profile: {
-                  email: 'osama@example.com',
-                  slackUserId: 'U1',
-                  slackTeamId: 'T1',
-                },
-              })),
-            }) as never,
-          startCallbackServer: vi.fn(async () => ({
-            callbackUrl: 'http://127.0.0.1:7777/callback',
-            waitForCode: vi.fn(async () => ({
-              code: 'login-code',
-              state: 'expected-state',
-            })),
-            close: vi.fn(async () => {}),
-          })),
-          createPkcePair: () => ({
-            verifier: 'verifier-value',
-            challenge: 'challenge-value',
-          }),
-          openUrl,
-          saveSession: vi.fn(async () => {}),
-        },
-      );
+      await loginCommand('test@example.com', {}, dependencies);
       expect(openUrl).toHaveBeenCalledWith('https://slack.example.com/auth');
-      expect(logSpy).not.toHaveBeenCalledWith('Auth URL: https://slack.example.com/auth');
+      expect(logSpy).not.toHaveBeenCalledWith('Slack Auth URL: https://slack.example.com/auth');
     } finally {
       logSpy.mockRestore();
     }

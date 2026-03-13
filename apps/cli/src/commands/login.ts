@@ -10,12 +10,14 @@ export type LoginCommandOptions = {
   printAuthUrl?: boolean;
 };
 
+type LoginApiClient = Pick<ApiClient, 'startSlackAuth' | 'exchangeLoginCode'>;
+
 type LoginCommandDependencies = {
   getCliConfig: typeof getCliConfig;
-  createApiClient: (baseUrl: string) => ApiClient;
+  createApiClient: (baseUrl: string) => LoginApiClient;
   startCallbackServer: typeof startCallbackServer;
   createPkcePair: typeof createPkcePair;
-  openUrl: (url: string) => Promise<unknown>;
+  openUrl: (url: string) => Promise<void>;
   saveSession: typeof saveSession;
 };
 
@@ -24,7 +26,9 @@ const defaultDependencies: LoginCommandDependencies = {
   createApiClient: (baseUrl: string) => new ApiClient(baseUrl),
   startCallbackServer,
   createPkcePair,
-  openUrl: (url: string) => open(url),
+  openUrl: async (url: string) => {
+    await open(url);
+  },
   saveSession,
 };
 
@@ -47,7 +51,7 @@ export async function loginCommand(
     });
 
     if (options.printAuthUrl) {
-      console.log(`Auth URL: ${auth.authorizeUrl}`);
+      console.log(`Slack Auth URL: ${auth.authorizeUrl}`);
     } else {
       try {
         await dependencies.openUrl(auth.authorizeUrl);
