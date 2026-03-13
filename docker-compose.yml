@@ -21,6 +21,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       PORT: 8080
       API_BASE_URL: ${API_BASE_URL:-http://localhost:8080}
+      ADMIN_WEB_BASE_URL: ${ADMIN_WEB_BASE_URL:-http://localhost:3001}
       JWT_SECRET: ${JWT_SECRET}
       REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
       SLACK_CLIENT_ID: ${SLACK_CLIENT_ID}
@@ -39,7 +40,20 @@ services:
       LEASE_TIMEOUT_SEC: 60
       REAPER_INTERVAL_SEC: 30
     ports:
-      - ":8080"
+      - "8080:8080"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      RS_TUNNEL_API_URL: http://api:8080
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET}
+    ports:
+      - "3001:3000"
 
 volumes:
   pgdata:

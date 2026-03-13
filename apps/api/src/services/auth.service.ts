@@ -27,6 +27,18 @@ type SlackUserInfoResponse = {
 
 const OAUTH_SESSION_TTL_MS = 10 * 60 * 1000;
 
+function joinUrl(baseUrl: string, pathname: string, params?: Record<string, string>): string {
+  const url = new URL(pathname, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
+
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value);
+    }
+  }
+
+  return url.toString();
+}
+
 export class AuthService implements AuthServiceContract {
   constructor(
     private readonly env: Env,
@@ -48,6 +60,7 @@ export class AuthService implements AuthServiceContract {
       state,
       codeChallenge: input.codeChallenge,
       cliCallbackUrl: this.env.SLACK_REDIRECT_URI,
+      flow: 'cli',
       expiresAt,
     });
 
@@ -65,7 +78,37 @@ export class AuthService implements AuthServiceContract {
     };
   }
 
-  async handleSlackCallback(input: { state: string; code: string }): Promise<void> {
+  async startAdminWebSlackAuth(): Promise<{ authorizeUrl: string; state: string }> {
+    const state = randomBytes(24).toString('base64url');
+    const expiresAt = new Date(Date.now() + OAUTH_SESSION_TTL_MS);
+
+    await this.repository.createOauthSession({
+      email: '',
+      state,
+      codeChallenge: randomBytes(24).toString('base64url'),
+      cliCallbackUrl: this.env.ADMIN_WEB_BASE_URL,
+      flow: 'web',
+      expiresAt,
+    });
+
+    const query = new URLSearchParams({
+      response_type: 'code',
+      client_id: this.env.SLACK_CLIENT_ID,
+      scope: 'openid profile email',
+      state,
+      redirect_uri: this.env.SLACK_REDIRECT_URI,
+    });
+
+    return {
+      authorizeUrl: `https://slack.com/openid/connect/authorize?${query.toString()}`,
+      state,
+    };
+  }
+
+  async handleSlackCallback(input: { state: string; code: string }): Promise<{
+    mode: 'cli' | 'web';
+    redirectUrl?: string;
+  }> {
     const session = await this.repository.getOauthSessionByState(input.state);
     if (!session) {
       throw new AppError(400, 'INVALID_STATE', 'OAuth state is invalid.');
@@ -83,7 +126,7 @@ export class AuthService implements AuthServiceContract {
     const slackProfile = await this.fetchSlackProfile(slackToken.access_token ?? '');
 
     const email = assertAllowedEmail(slackProfile.email ?? '', this.env.ALLOWED_EMAIL_DOMAIN);
-    if (normalizeEmail(session.email) !== email) {
+    if (session.flow === 'cli' && normalizeEmail(session.email) !== email) {
       throw new AppError(403, 'EMAIL_MISMATCH', 'Authenticated Slack user email does not match requested email.');
     }
 
@@ -115,8 +158,19 @@ export class AuthService implements AuthServiceContract {
     await this.repository.createAuditLog({
       userId: user.id,
       action: 'auth.oauth.authorized',
-      metadata: { email },
+      metadata: { email, flow: session.flow },
     });
+
+    if (session.flow === 'web') {
+      return {
+        mode: 'web',
+        redirectUrl: joinUrl(this.env.ADMIN_WEB_BASE_URL, '/auth/callback', { loginCode }),
+      };
+    }
+
+    return {
+      mode: 'cli',
+    };
   }
 
   async getSlackAuthStatus(input: { state: string }): Promise<{
@@ -144,19 +198,7 @@ export class AuthService implements AuthServiceContract {
   }
 
   async exchangeLoginCode(input: { loginCode: string; codeVerifier: string }): Promise<TokenPair> {
-    const session = await this.repository.getOauthSessionByLoginCode(input.loginCode);
-
-    if (!session) {
-      throw new AppError(400, 'INVALID_LOGIN_CODE', 'Login code is invalid.');
-    }
-
-    if (session.status !== 'authorized') {
-      throw new AppError(400, 'LOGIN_CODE_USED', 'Login code is no longer valid.');
-    }
-
-    if (session.expiresAt.getTime() < Date.now()) {
-      throw new AppError(400, 'LOGIN_CODE_EXPIRED', 'Login code expired.');
-    }
+    const session = await this.getAuthorizedSession(input.loginCode, 'cli');
 
     const challenge = createCodeChallenge(input.codeVerifier);
     if (challenge !== session.codeChallenge) {
@@ -179,6 +221,47 @@ export class AuthService implements AuthServiceContract {
       email: user.email,
       slackUserId: user.slackUserId,
       slackTeamId: user.slackTeamId,
+    });
+  }
+
+  async exchangeAdminWebLoginCode(input: { loginCode: string }): Promise<TokenPair> {
+    const session = await this.getAuthorizedSession(input.loginCode, 'web');
+
+    if (!session.userId) {
+      throw new AppError(400, 'INVALID_LOGIN_CODE', 'Login code is missing user context.');
+    }
+
+    const user = await this.repository.getUserById(session.userId);
+    if (!user) {
+      throw new AppError(404, 'USER_NOT_FOUND', 'User record not found for login code.');
+    }
+
+    const ownerCandidate = await this.repository.claimOwnerIfMissing(user.id, new Date());
+    const effectiveUser = ownerCandidate ?? user;
+
+    await this.repository.consumeOauthSession(session.id, new Date());
+
+    if (effectiveUser.adminRole !== 'owner') {
+      await this.repository.createAuditLog({
+        userId: user.id,
+        action: 'auth.admin.denied',
+        metadata: { email: user.email },
+      });
+
+      throw new AppError(403, 'OWNER_ACCESS_REQUIRED', 'Only the instance owner can access the admin panel.');
+    }
+
+    await this.repository.createAuditLog({
+      userId: effectiveUser.id,
+      action: 'auth.admin.authorized',
+      metadata: { email: effectiveUser.email },
+    });
+
+    return this.issueTokenPair({
+      id: effectiveUser.id,
+      email: effectiveUser.email,
+      slackUserId: effectiveUser.slackUserId,
+      slackTeamId: effectiveUser.slackTeamId,
     });
   }
 
@@ -254,6 +337,24 @@ export class AuthService implements AuthServiceContract {
     }
 
     return payload;
+  }
+
+  private async getAuthorizedSession(loginCode: string, flow: 'cli' | 'web') {
+    const session = await this.repository.getOauthSessionByLoginCode(loginCode);
+
+    if (!session || session.flow !== flow) {
+      throw new AppError(400, 'INVALID_LOGIN_CODE', 'Login code is invalid.');
+    }
+
+    if (session.status !== 'authorized') {
+      throw new AppError(400, 'LOGIN_CODE_USED', 'Login code is no longer valid.');
+    }
+
+    if (session.expiresAt.getTime() < Date.now()) {
+      throw new AppError(400, 'LOGIN_CODE_EXPIRED', 'Login code expired.');
+    }
+
+    return session;
   }
 
   private async issueTokenPair(user: {

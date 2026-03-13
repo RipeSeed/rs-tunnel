@@ -3,6 +3,7 @@ import { pool } from './db/client.js';
 import { repository } from './db/repository.js';
 import { logger } from './lib/logger.js';
 import { buildApp } from './app.js';
+import { AdminService } from './services/admin.service.js';
 import { AuthService } from './services/auth.service.js';
 import { CleanupService } from './services/cleanup.service.js';
 import { CloudflareService } from './services/cloudflare.service.js';
@@ -16,12 +17,14 @@ async function start(): Promise<void> {
   const cloudflareService = new CloudflareService(env);
   const tunnelService = new TunnelService(env, repository, cloudflareService, tokenService);
   const authService = new AuthService(env, repository, tokenService);
+  const adminService = new AdminService(repository);
   const telemetryService = new TelemetryService(repository);
   const cleanupService = new CleanupService(repository, tunnelService);
 
   const app = buildApp({
     env,
     services: {
+      adminService,
       authService,
       telemetryService,
       tunnelService,

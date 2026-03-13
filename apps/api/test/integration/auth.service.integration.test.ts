@@ -13,16 +13,30 @@ type Session = {
   state: string;
   codeChallenge: string;
   cliCallbackUrl: string;
+  flow: 'cli' | 'web';
   loginCode?: string;
   userId?: string;
   status: 'pending' | 'authorized' | 'consumed';
   expiresAt: Date;
 };
 
+type UserRecord = {
+  id: string;
+  email: string;
+  slackUserId: string;
+  slackTeamId: string;
+  adminRole: 'member' | 'owner';
+  roleGrantedAt: Date | null;
+  status: 'active';
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 const env: Env = {
   NODE_ENV: 'test',
   PORT: 8080,
   API_BASE_URL: 'http://localhost:8080',
+  ADMIN_WEB_BASE_URL: 'http://localhost:3001',
   DATABASE_URL: 'postgres://x',
   JWT_SECRET: '1234567890123456',
   REFRESH_TOKEN_SECRET: '1234567890123456',
@@ -45,12 +59,12 @@ const env: Env = {
 
 describe('AuthService integration behaviors', () => {
   const sessions = new Map<string, Session>();
-  const users = new Map<string, { id: string; email: string; slackUserId: string; slackTeamId: string }>();
+  const users = new Map<string, UserRecord>();
 
   const repository = {
     createOauthSession: vi.fn(async (input: Omit<Session, 'id' | 'status'>) => {
       const session: Session = {
-        id: 'session-1',
+        id: `session-${sessions.size + 1}`,
         status: 'pending',
         ...input,
       };
@@ -59,10 +73,23 @@ describe('AuthService integration behaviors', () => {
     }),
     getOauthSessionByState: vi.fn(async (state: string) => sessions.get(state)),
     upsertUserBySlack: vi.fn(async (input: { email: string; slackUserId: string; slackTeamId: string }) => {
-      const user = {
-        id: 'user-1',
-        ...input,
-      };
+      const existing = Array.from(users.values()).find((user) => user.email === input.email);
+      const user: UserRecord = existing
+        ? {
+            ...existing,
+            slackUserId: input.slackUserId,
+            slackTeamId: input.slackTeamId,
+            updatedAt: new Date(),
+          }
+        : {
+            id: `user-${users.size + 1}`,
+            ...input,
+            adminRole: 'member',
+            roleGrantedAt: null,
+            status: 'active',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
       users.set(user.id, user);
       return user;
     }),
@@ -92,10 +119,31 @@ describe('AuthService integration behaviors', () => {
         }
       }
     }),
+    claimOwnerIfMissing: vi.fn(async (userId: string, roleGrantedAt: Date) => {
+      const existingOwner = Array.from(users.values()).find((user) => user.adminRole === 'owner');
+      if (existingOwner) {
+        return users.get(userId);
+      }
+
+      const user = users.get(userId);
+      if (!user) {
+        return undefined;
+      }
+
+      const updated: UserRecord = {
+        ...user,
+        adminRole: 'owner',
+        roleGrantedAt,
+      };
+      users.set(userId, updated);
+      return updated;
+    }),
     storeRefreshToken: vi.fn().mockResolvedValue(undefined),
     getActiveRefreshTokenWithUser: vi.fn(),
     revokeRefreshToken: vi.fn(),
     revokeAllUserRefreshTokens: vi.fn(),
+    hasOwnerUser: vi.fn(async () => Array.from(users.values()).some((user) => user.adminRole === 'owner')),
+    getOwnerUser: vi.fn(async () => Array.from(users.values()).find((user) => user.adminRole === 'owner')),
   };
 
   const tokenService = {
@@ -108,6 +156,7 @@ describe('AuthService integration behaviors', () => {
   beforeEach(() => {
     sessions.clear();
     users.clear();
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
@@ -147,10 +196,12 @@ describe('AuthService integration behaviors', () => {
         }),
     );
 
-    await service.handleSlackCallback({
+    const callback = await service.handleSlackCallback({
       state: start.state,
       code: 'code-123',
     });
+
+    expect(callback.mode).toBe('cli');
 
     const authStatus = await service.getSlackAuthStatus({ state: start.state });
     expect(authStatus.status).toBe('authorized');
@@ -216,5 +267,109 @@ describe('AuthService integration behaviors', () => {
     await expect(service.handleSlackCallback({ state: start.state, code: 'code-123' })).rejects.toThrowError(
       /workspace is not allowed/,
     );
+  });
+
+  it('lets the first admin-panel login claim ownership even when the user already exists', async () => {
+    const existingUser: UserRecord = {
+      id: 'user-existing',
+      email: 'osama@example.com',
+      slackUserId: 'ULEGACY',
+      slackTeamId: 'TEXAMPLE',
+      adminRole: 'member',
+      roleGrantedAt: null,
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    users.set(existingUser.id, existingUser);
+
+    const service = new AuthService(
+      env,
+      repository as unknown as Repository,
+      tokenService as unknown as TokenService,
+    );
+
+    const start = await service.startAdminWebSlackAuth();
+
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ ok: true, access_token: 'slack-access-token' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            email: 'osama@example.com',
+            'https://slack.com/user_id': 'U1',
+            'https://slack.com/team_id': 'TEXAMPLE',
+          }),
+        }),
+    );
+
+    const callback = await service.handleSlackCallback({
+      state: start.state,
+      code: 'code-admin',
+    });
+
+    expect(callback.mode).toBe('web');
+    expect(callback.redirectUrl).toContain('/auth/callback?loginCode=');
+
+    const loginCode = new URL(callback.redirectUrl ?? 'http://localhost:3001').searchParams.get('loginCode') ?? '';
+    const exchange = await service.exchangeAdminWebLoginCode({ loginCode });
+
+    expect(exchange.profile.email).toBe('osama@example.com');
+    expect(users.get(existingUser.id)?.adminRole).toBe('owner');
+  });
+
+  it('denies a second admin-panel user when an owner already exists', async () => {
+    users.set('owner-1', {
+      id: 'owner-1',
+      email: 'owner@example.com',
+      slackUserId: 'UOWNER',
+      slackTeamId: 'TEXAMPLE',
+      adminRole: 'owner',
+      roleGrantedAt: new Date(),
+      status: 'active',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const service = new AuthService(
+      env,
+      repository as unknown as Repository,
+      tokenService as unknown as TokenService,
+    );
+
+    const start = await service.startAdminWebSlackAuth();
+
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ ok: true, access_token: 'slack-access-token' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            email: 'member@example.com',
+            'https://slack.com/user_id': 'UMEMBER',
+            'https://slack.com/team_id': 'TEXAMPLE',
+          }),
+        }),
+    );
+
+    const callback = await service.handleSlackCallback({
+      state: start.state,
+      code: 'code-admin-2',
+    });
+
+    const loginCode = new URL(callback.redirectUrl ?? 'http://localhost:3001').searchParams.get('loginCode') ?? '';
+
+    await expect(service.exchangeAdminWebLoginCode({ loginCode })).rejects.toThrowError(/Only the instance owner/);
   });
 });

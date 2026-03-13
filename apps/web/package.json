@@ -1,0 +1,47 @@
+{
+  "name": "@ripeseed/admin-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Owner-only Next.js admin panel for rs-tunnel.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RipeSeed/rs-tunnel.git",
+    "directory": "apps/web"
+  },
+  "homepage": "https://github.com/RipeSeed/rs-tunnel/tree/main/apps/web",
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "start": "next start",
+    "lint": "eslint src --ext .ts,.tsx && eslint middleware.ts next.config.ts --ext .ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "format": "prettier --check src"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.2.4",
+    "@ripeseed/shared": "workspace:*",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.511.0",
+    "next": "^15.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "recharts": "^2.15.4",
+    "tailwind-merge": "^3.5.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@ripeseed/config": "workspace:*",
+    "@tailwindcss/postcss": "^4.1.8",
+    "@types/node": "^22.12.0",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^4.1.8",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

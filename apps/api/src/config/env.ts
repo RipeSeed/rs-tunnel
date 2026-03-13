@@ -18,6 +18,7 @@ const envSchema = z
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().positive().default(8080),
     API_BASE_URL: z.string().url(),
+    ADMIN_WEB_BASE_URL: z.string().url(),
     DATABASE_URL: z.string().min(1),
     JWT_SECRET: z.string().min(16),
     REFRESH_TOKEN_SECRET: z.string().min(16),

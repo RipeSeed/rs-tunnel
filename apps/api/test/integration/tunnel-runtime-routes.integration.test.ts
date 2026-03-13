@@ -8,6 +8,7 @@ const env: BuildAppInput['env'] = {
   NODE_ENV: 'test',
   PORT: 8080,
   API_BASE_URL: 'http://localhost:8080',
+  ADMIN_WEB_BASE_URL: 'http://localhost:3001',
   DATABASE_URL: 'postgres://x',
   JWT_SECRET: '1234567890123456',
   REFRESH_TOKEN_SECRET: '1234567890123456',
@@ -66,16 +67,31 @@ describe('runtime tunnel routes', () => {
 
     const authService = {
       startSlackAuth: vi.fn(),
+      startAdminWebSlackAuth: vi.fn(),
       handleSlackCallback: vi.fn(),
       getSlackAuthStatus: vi.fn(),
       exchangeLoginCode: vi.fn(),
+      exchangeAdminWebLoginCode: vi.fn(),
       refreshTokens: vi.fn(),
       logout: vi.fn(),
+    };
+
+    const adminService = {
+      getBootstrapStatus: vi.fn(),
+      getSession: vi.fn(),
+      getDashboard: vi.fn(),
+      listUsers: vi.fn(),
+      listTunnels: vi.fn(),
+      getTunnelDetail: vi.fn(),
+      getTunnelMetrics: vi.fn(),
+      getTunnelRequests: vi.fn(),
+      listActivity: vi.fn(),
     };
 
     const app = buildApp({
       env,
       services: {
+        adminService: adminService as never,
         authService: authService as never,
         telemetryService: telemetryService as never,
         tunnelService: tunnelService as never,

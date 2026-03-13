@@ -4,6 +4,7 @@
 
 - CLI: `@ripeseed/rs-tunnel`
 - API: `@ripeseed/api`
+- Admin web app: `@ripeseed/admin-web`
 - Shared contracts: `@ripeseed/shared`
 
 It creates secure public hostnames for localhost services, enforces auth policy, manages Cloudflare tunnel + DNS lifecycle, and cleans stale sessions.
@@ -19,6 +20,7 @@ It creates secure public hostnames for localhost services, enforces auth policy,
 ## Architecture
 
 - `apps/api`: Fastify API + Drizzle + Postgres + cleanup worker
+- `apps/web`: owner-only Next.js admin panel for self-hosted operators
 - `apps/cli`: CLI (`login`, `up`, `list`, `stop`, `logout`, `doctor`)
 - `packages/shared`: shared Zod schemas/contracts
 - `packages/config`: shared lint/format/TypeScript config
@@ -32,6 +34,28 @@ High-level flow:
 5. API creates Cloudflare tunnel + DNS
 6. CLI runs local reverse proxy + `cloudflared` and heartbeats every 20 seconds
 7. `rs-tunnel stop ...` removes DNS and tunnel
+
+## Admin panel
+
+The repo includes a private admin console in `apps/web`.
+
+- The first successful Slack login to the web app becomes the instance owner.
+- Existing CLI/API users are unchanged; the owner-only rule applies only to the admin panel in v1.
+- Slack OAuth still runs through the API. The web app stores an encrypted server-side session cookie and makes server-to-server API calls.
+
+V1 dashboard coverage:
+
+- Total users
+- Active tunnels
+- Live open connections
+- 24 hour requests
+- 24 hour error rate
+- 24 hour transferred bytes
+- Pending cleanup jobs
+- Tunnel status breakdown
+- Live tunnels table
+- Users table
+- Recent activity
 
 ## Prerequisites
 
@@ -50,6 +74,9 @@ Create `.env` in repo root or `apps/api/.env`.
 - `API_BASE_URL`
   - Local: `http://localhost:8080`
   - Deployments: your public API base URL
+- `ADMIN_WEB_BASE_URL`
+  - Local: `http://localhost:3001`
+  - Deployments: your public admin web base URL
 - `PORT` (default: `8080`)
 - `DATABASE_URL`
 - `JWT_SECRET`
@@ -91,6 +118,11 @@ Compatibility fallback:
 - `RS_TUNNEL_API_URL` (recommended global API URL override, default: `http://localhost:8080`)
 - `RS_TUNNEL_API_BASE_URL` (legacy alias for backward compatibility)
 
+### Admin web app
+
+- `ADMIN_SESSION_SECRET` (required encrypted cookie secret)
+- `RS_TUNNEL_API_URL` (required API base URL used by the web app)
+
 ## Local development
 
 1. Install dependencies:
@@ -117,7 +149,15 @@ pnpm --filter @ripeseed/api db:migrate
 pnpm --filter @ripeseed/api dev
 ```
 
-5. Run CLI against local API:
+5. Start the admin web app:
+
+```bash
+export RS_TUNNEL_API_URL=http://localhost:8080
+export ADMIN_SESSION_SECRET=replace-me-with-a-long-random-string
+pnpm --filter @ripeseed/admin-web dev -- --port 3001
+```
+
+6. Run CLI against local API:
 
 ```bash
 export RS_TUNNEL_API_URL=http://localhost:8080
@@ -126,6 +166,10 @@ pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts login --email you@exampl
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts login --email you@example.com --skip-browser-open
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts up --port 3000 --url my-app
 ```
+
+7. Open the admin panel at `http://localhost:3001`
+
+The first successful Slack login to the web app claims the owner seat for that deployment.
 
 ## CLI commands
 
@@ -181,6 +225,19 @@ pnpm typecheck
 pnpm test
 pnpm build
 ```
+
+## Docker compose
+
+The compose stack includes Postgres, the API, and the admin web app.
+
+```bash
+docker compose up -d postgres api web
+```
+
+Default local URLs:
+
+- API: `http://localhost:8080`
+- Admin web: `http://localhost:3001`
 
 ## Release / publishing
 

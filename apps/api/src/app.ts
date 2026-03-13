@@ -4,14 +4,16 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import type { Env } from './config/env.js';
 import { AppError, isAppError } from './lib/app-error.js';
-import type { AuthService, TelemetryService, TokenService, TunnelService } from './types.js';
+import type { AdminService, AuthService, TelemetryService, TokenService, TunnelService } from './types.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerAdminRoutes } from './routes/admin.js';
 import { registerTelemetryRoutes } from './routes/telemetry.js';
 import { registerTunnelRoutes } from './routes/tunnels.js';
 
 export type BuildAppInput = {
   env: Env;
   services: {
+    adminService: AdminService;
     authService: AuthService;
     telemetryService: TelemetryService;
     tunnelService: TunnelService;
@@ -55,6 +57,7 @@ export function buildApp(input: BuildAppInput): FastifyInstance {
 
   app.register(async (v1) => {
     await registerAuthRoutes(v1);
+    await registerAdminRoutes(v1);
     await registerTelemetryRoutes(v1);
     await registerTunnelRoutes(v1);
   }, { prefix: '/v1' });

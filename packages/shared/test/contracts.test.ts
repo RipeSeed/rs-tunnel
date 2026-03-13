@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  adminDashboardSchema,
+  adminSessionSchema,
+  adminUsersListResponseSchema,
+  adminWebAuthExchangeRequestSchema,
+  adminBootstrapStatusSchema,
   authStartRequestSchema,
   authStatusResponseSchema,
   tunnelCreateResponseSchema,
@@ -104,5 +109,93 @@ describe('shared contracts', () => {
 
     expect(parsed.status).toBe('authorized');
     expect(parsed.loginCode).toBe('login-code-12345');
+  });
+
+  it('accepts admin bootstrap status responses', () => {
+    const parsed = adminBootstrapStatusSchema.parse({
+      ownerExists: false,
+      firstLoginClaimsOwner: true,
+    });
+
+    expect(parsed.firstLoginClaimsOwner).toBe(true);
+  });
+
+  it('accepts admin auth exchange requests without PKCE', () => {
+    const parsed = adminWebAuthExchangeRequestSchema.parse({
+      loginCode: 'admin-login-code-12345',
+    });
+
+    expect(parsed.loginCode).toBe('admin-login-code-12345');
+  });
+
+  it('accepts admin sessions with owner metadata', () => {
+    const parsed = adminSessionSchema.parse({
+      user: {
+        id: '11111111-1111-1111-1111-111111111111',
+        email: 'owner@example.com',
+        slackUserId: 'U1',
+        slackTeamId: 'T1',
+        role: 'owner',
+        roleGrantedAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+
+    expect(parsed.user.role).toBe('owner');
+  });
+
+  it('accepts admin user list responses', () => {
+    const parsed = adminUsersListResponseSchema.parse([
+      {
+        id: '11111111-1111-1111-1111-111111111111',
+        email: 'owner@example.com',
+        slackUserId: 'U1',
+        slackTeamId: 'T1',
+        role: 'owner',
+        roleGrantedAt: '2026-01-01T00:00:00.000Z',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        activeTunnelCount: 1,
+        totalTunnelCount: 2,
+        lastAuditAt: '2026-01-01T01:00:00.000Z',
+      },
+    ]);
+
+    expect(parsed[0]?.activeTunnelCount).toBe(1);
+  });
+
+  it('accepts admin dashboard payloads', () => {
+    const parsed = adminDashboardSchema.parse({
+      summary: {
+        totalUsers: 2,
+        activeTunnels: 1,
+        liveOpenConnections: 3,
+        requestsLast24h: 100,
+        errorRateLast24h: 2.5,
+        bytesLast24h: 1024,
+        pendingCleanupJobs: 0,
+      },
+      tunnelStatusBreakdown: [
+        { status: 'active', count: 1 },
+        { status: 'stopped', count: 4 },
+      ],
+      requestVolume24h: [
+        {
+          bucketStart: '2026-01-01T00:00:00.000Z',
+          requests: 10,
+          errors: 1,
+        },
+      ],
+      bandwidth24h: [
+        {
+          bucketStart: '2026-01-01T00:00:00.000Z',
+          bytes: 512,
+        },
+      ],
+      liveTunnels: [],
+      users: [],
+      recentActivity: [],
+    });
+
+    expect(parsed.summary.liveOpenConnections).toBe(3);
   });
 });

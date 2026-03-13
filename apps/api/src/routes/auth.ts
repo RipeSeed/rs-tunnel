@@ -47,10 +47,14 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
       throw new AppError(400, 'MISSING_OAUTH_PARAMS', 'Slack OAuth callback is missing state or code.');
     }
 
-    await app.services.authService.handleSlackCallback({
+    const result = await app.services.authService.handleSlackCallback({
       state: query.state,
       code: query.code,
     });
+
+    if (result.mode === 'web' && result.redirectUrl) {
+      return reply.redirect(result.redirectUrl);
+    }
 
     return reply
       .type('text/html; charset=utf-8')

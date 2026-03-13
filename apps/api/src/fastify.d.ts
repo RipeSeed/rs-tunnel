@@ -2,6 +2,7 @@ import type { FastifyReply } from 'fastify';
 
 import type {
   AccessTokenPayload,
+  AdminService,
   AuthService,
   RuntimeTunnelTokenPayload,
   TelemetryService,
@@ -17,6 +18,7 @@ declare module 'fastify' {
 
   interface FastifyInstance {
     services: {
+      adminService: AdminService;
       authService: AuthService;
       telemetryService: TelemetryService;
       tunnelService: TunnelService;

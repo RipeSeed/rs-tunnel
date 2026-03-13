@@ -9,6 +9,7 @@ const env: Env = {
   NODE_ENV: 'test',
   PORT: 8080,
   API_BASE_URL: 'http://localhost:8080',
+  ADMIN_WEB_BASE_URL: 'http://localhost:3001',
   DATABASE_URL: 'postgres://x',
   JWT_SECRET: '1234567890123456',
   REFRESH_TOKEN_SECRET: '1234567890123456',

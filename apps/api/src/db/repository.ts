@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 
 import { db } from './client.js';
 import {
@@ -15,6 +15,7 @@ import {
   users,
   type DbCleanupJob,
   type DbOAuthSession,
+  type DbAuditLog,
   type DbTunnelLease,
   type DbTunnelLiveMetric,
   type DbTunnelMetric,
@@ -27,6 +28,15 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}
 
 function isUuidLike(value: string): boolean {
   return uuidPattern.test(value);
+}
+
+function isPgUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: string }).code === '23505'
+  );
 }
 
 export class Repository {
@@ -64,11 +74,50 @@ export class Repository {
     return user;
   }
 
+  async getOwnerUser(): Promise<DbUser | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.adminRole, 'owner'));
+    return user;
+  }
+
+  async hasOwnerUser(): Promise<boolean> {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(users)
+      .where(eq(users.adminRole, 'owner'));
+
+    return (row?.count ?? 0) > 0;
+  }
+
+  async claimOwnerIfMissing(userId: string, roleGrantedAt: Date): Promise<DbUser | undefined> {
+    try {
+      const [user] = await db
+        .update(users)
+        .set({
+          adminRole: 'owner',
+          roleGrantedAt,
+          updatedAt: touchUpdatedAtSql,
+        })
+        .where(and(eq(users.id, userId), sql`not exists (select 1 from users where admin_role = 'owner')`))
+        .returning();
+
+      if (user) {
+        return user;
+      }
+    } catch (error) {
+      if (!isPgUniqueViolation(error)) {
+        throw error;
+      }
+    }
+
+    return this.getUserById(userId);
+  }
+
   async createOauthSession(input: {
     email: string;
     state: string;
     codeChallenge: string;
     cliCallbackUrl: string;
+    flow: 'cli' | 'web';
     expiresAt: Date;
   }): Promise<DbOAuthSession> {
     const [session] = await db
@@ -78,6 +127,7 @@ export class Repository {
         state: input.state,
         codeChallenge: input.codeChallenge,
         cliCallbackUrl: input.cliCallbackUrl,
+        flow: input.flow,
         expiresAt: input.expiresAt,
       })
       .returning();
@@ -333,6 +383,286 @@ export class Repository {
       tunnel: row.tunnel,
       lease: row.lease ?? null,
     }));
+  }
+
+  async countUsers(): Promise<number> {
+    const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(users);
+    return row?.count ?? 0;
+  }
+
+  async countOrgActiveTunnels(): Promise<number> {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tunnels)
+      .where(eq(tunnels.status, 'active'));
+
+    return row?.count ?? 0;
+  }
+
+  async countPendingCleanupJobs(): Promise<number> {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(cleanupJobs)
+      .where(inArray(cleanupJobs.status, ['queued', 'failed', 'processing']));
+
+    return row?.count ?? 0;
+  }
+
+  async getOrgLiveOpenConnections(): Promise<number> {
+    const [row] = await db
+      .select({ total: sql<number>`coalesce(sum(${tunnelLiveMetrics.opn}), 0)::int` })
+      .from(tunnelLiveMetrics)
+      .innerJoin(tunnels, eq(tunnels.id, tunnelLiveMetrics.tunnelId))
+      .where(inArray(tunnels.status, ['active', 'stopping']));
+
+    return row?.total ?? 0;
+  }
+
+  async getOrgTrafficSummary(since: Date): Promise<{ requests: number; errors: number; bytes: number }> {
+    const [row] = await db
+      .select({
+        requests: sql<number>`count(*)::int`,
+        errors: sql<number>`count(*) filter (where ${tunnelRequests.error})::int`,
+        bytes: sql<number>`coalesce(sum(coalesce(${tunnelRequests.responseBytes}, 0)), 0)::double precision`,
+      })
+      .from(tunnelRequests)
+      .where(gte(tunnelRequests.ingestedAt, since));
+
+    return {
+      requests: row?.requests ?? 0,
+      errors: row?.errors ?? 0,
+      bytes: Math.max(0, Math.round(row?.bytes ?? 0)),
+    };
+  }
+
+  async listOrgTunnelStatusCounts(): Promise<Array<{ status: string; count: number }>> {
+    return db
+      .select({
+        status: tunnels.status,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(tunnels)
+      .groupBy(tunnels.status)
+      .orderBy(asc(tunnels.status));
+  }
+
+  async listOrgRequestVolumeByHour(since: Date): Promise<Array<{ bucketStart: Date; requests: number; errors: number }>> {
+    const bucketStart = sql<Date>`date_trunc('hour', ${tunnelRequests.ingestedAt})`;
+
+    return db
+      .select({
+        bucketStart,
+        requests: sql<number>`count(*)::int`,
+        errors: sql<number>`count(*) filter (where ${tunnelRequests.error})::int`,
+      })
+      .from(tunnelRequests)
+      .where(gte(tunnelRequests.ingestedAt, since))
+      .groupBy(bucketStart)
+      .orderBy(asc(bucketStart));
+  }
+
+  async listOrgBandwidthByHour(since: Date): Promise<Array<{ bucketStart: Date; bytes: number }>> {
+    const bucketStart = sql<Date>`date_trunc('hour', ${tunnelRequests.ingestedAt})`;
+
+    const rows = await db
+      .select({
+        bucketStart,
+        bytes: sql<number>`coalesce(sum(coalesce(${tunnelRequests.responseBytes}, 0)), 0)::double precision`,
+      })
+      .from(tunnelRequests)
+      .where(gte(tunnelRequests.ingestedAt, since))
+      .groupBy(bucketStart)
+      .orderBy(asc(bucketStart));
+
+    return rows.map((row) => ({
+      bucketStart: row.bucketStart,
+      bytes: Math.max(0, Math.round(row.bytes)),
+    }));
+  }
+
+  async listAdminUsers(limit?: number): Promise<
+    Array<{
+      user: DbUser;
+      activeTunnelCount: number;
+      totalTunnelCount: number;
+      lastAuditAt: Date | null;
+    }>
+  > {
+    const baseQuery = db
+      .select({
+        user: users,
+        activeTunnelCount:
+          sql<number>`count(distinct case when ${tunnels.status} in ('active', 'stopping') then ${tunnels.id} end)::int`,
+        totalTunnelCount: sql<number>`count(distinct ${tunnels.id})::int`,
+        lastAuditAt: sql<Date | null>`max(${auditLogs.createdAt})`,
+      })
+      .from(users)
+      .leftJoin(tunnels, eq(tunnels.userId, users.id))
+      .leftJoin(auditLogs, eq(auditLogs.userId, users.id))
+      .groupBy(users.id)
+      .orderBy(desc(sql`case when ${users.adminRole} = 'owner' then 1 else 0 end`), desc(users.createdAt));
+
+    return limit ? baseQuery.limit(limit) : baseQuery;
+  }
+
+  async listAdminTunnels(limit?: number): Promise<
+    Array<{
+      id: string;
+      userId: string;
+      userEmail: string;
+      hostname: string;
+      slug: string;
+      status: string;
+      requestedPort: number;
+      createdAt: Date;
+      stoppedAt: Date | null;
+      lastError: string | null;
+      receivedAt: Date | null;
+      region: string | null;
+      ttl: number | null;
+      opn: number;
+      rt1Ms: number | null;
+      p90Ms: number | null;
+      requests: number;
+      errors: number;
+      bytes: number;
+      lastHeartbeatAt: Date | null;
+      expiresAt: Date | null;
+    }>
+  > {
+    const baseQuery = db
+      .select({
+        id: tunnels.id,
+        userId: users.id,
+        userEmail: users.email,
+        hostname: tunnels.hostname,
+        slug: tunnels.slug,
+        status: tunnels.status,
+        requestedPort: tunnels.requestedPort,
+        createdAt: tunnels.createdAt,
+        stoppedAt: tunnels.stoppedAt,
+        lastError: tunnels.lastError,
+        receivedAt: tunnelLiveMetrics.receivedAt,
+        region: tunnelLiveMetrics.region,
+        ttl: tunnelLiveMetrics.ttl,
+        opn: sql<number>`coalesce(${tunnelLiveMetrics.opn}, 0)::int`,
+        rt1Ms: tunnelLiveMetrics.rt1Ms,
+        p90Ms: tunnelLiveMetrics.p90Ms,
+        requests: sql<number>`coalesce(${tunnelLiveMetrics.requests}, 0)::int`,
+        errors: sql<number>`coalesce(${tunnelLiveMetrics.errors}, 0)::int`,
+        bytes: sql<number>`coalesce(${tunnelLiveMetrics.bytes}, 0)::int`,
+        lastHeartbeatAt: tunnelLeases.lastHeartbeatAt,
+        expiresAt: tunnelLeases.expiresAt,
+      })
+      .from(tunnels)
+      .innerJoin(users, eq(users.id, tunnels.userId))
+      .leftJoin(tunnelLiveMetrics, eq(tunnelLiveMetrics.tunnelId, tunnels.id))
+      .leftJoin(tunnelLeases, eq(tunnelLeases.tunnelId, tunnels.id))
+      .orderBy(
+        desc(sql`case when ${tunnels.status} = 'active' then 1 else 0 end`),
+        desc(sql`case when ${tunnels.status} = 'stopping' then 1 else 0 end`),
+        desc(tunnels.createdAt),
+      );
+
+    return limit ? baseQuery.limit(limit) : baseQuery;
+  }
+
+  async getAdminTunnelById(tunnelId: string): Promise<
+    | {
+        id: string;
+        userId: string;
+        userEmail: string;
+        hostname: string;
+        slug: string;
+        status: string;
+        requestedPort: number;
+        createdAt: Date;
+        stoppedAt: Date | null;
+        lastError: string | null;
+        receivedAt: Date | null;
+        region: string | null;
+        ttl: number | null;
+        opn: number;
+        rt1Ms: number | null;
+        p90Ms: number | null;
+        requests: number;
+        errors: number;
+        bytes: number;
+        lastHeartbeatAt: Date | null;
+        expiresAt: Date | null;
+      }
+    | undefined
+  > {
+    const [row] = await db
+      .select({
+        id: tunnels.id,
+        userId: users.id,
+        userEmail: users.email,
+        hostname: tunnels.hostname,
+        slug: tunnels.slug,
+        status: tunnels.status,
+        requestedPort: tunnels.requestedPort,
+        createdAt: tunnels.createdAt,
+        stoppedAt: tunnels.stoppedAt,
+        lastError: tunnels.lastError,
+        receivedAt: tunnelLiveMetrics.receivedAt,
+        region: tunnelLiveMetrics.region,
+        ttl: tunnelLiveMetrics.ttl,
+        opn: sql<number>`coalesce(${tunnelLiveMetrics.opn}, 0)::int`,
+        rt1Ms: tunnelLiveMetrics.rt1Ms,
+        p90Ms: tunnelLiveMetrics.p90Ms,
+        requests: sql<number>`coalesce(${tunnelLiveMetrics.requests}, 0)::int`,
+        errors: sql<number>`coalesce(${tunnelLiveMetrics.errors}, 0)::int`,
+        bytes: sql<number>`coalesce(${tunnelLiveMetrics.bytes}, 0)::int`,
+        lastHeartbeatAt: tunnelLeases.lastHeartbeatAt,
+        expiresAt: tunnelLeases.expiresAt,
+      })
+      .from(tunnels)
+      .innerJoin(users, eq(users.id, tunnels.userId))
+      .leftJoin(tunnelLiveMetrics, eq(tunnelLiveMetrics.tunnelId, tunnels.id))
+      .leftJoin(tunnelLeases, eq(tunnelLeases.tunnelId, tunnels.id))
+      .where(eq(tunnels.id, tunnelId));
+
+    return row;
+  }
+
+  async getTunnelTrafficSummary(tunnelId: string, since: Date): Promise<{
+    requests: number;
+    errors: number;
+    bytes: number;
+    averageDurationMs: number | null;
+  }> {
+    const [row] = await db
+      .select({
+        requests: sql<number>`count(*)::int`,
+        errors: sql<number>`count(*) filter (where ${tunnelRequests.error})::int`,
+        bytes: sql<number>`coalesce(sum(coalesce(${tunnelRequests.responseBytes}, 0)), 0)::double precision`,
+        averageDurationMs: sql<number | null>`nullif(avg(${tunnelRequests.durationMs})::double precision, 'NaN'::double precision)`,
+      })
+      .from(tunnelRequests)
+      .where(and(eq(tunnelRequests.tunnelId, tunnelId), gte(tunnelRequests.ingestedAt, since)));
+
+    return {
+      requests: row?.requests ?? 0,
+      errors: row?.errors ?? 0,
+      bytes: Math.max(0, Math.round(row?.bytes ?? 0)),
+      averageDurationMs:
+        row?.averageDurationMs === null || row?.averageDurationMs === undefined
+          ? null
+          : Math.max(0, Number(row.averageDurationMs)),
+    };
+  }
+
+  async listRecentActivity(limit: number): Promise<Array<{ audit: DbAuditLog; userEmail: string | null }>> {
+    return db
+      .select({
+        audit: auditLogs,
+        userEmail: users.email,
+      })
+      .from(auditLogs)
+      .leftJoin(users, eq(users.id, auditLogs.userId))
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(limit);
   }
 
   async upsertLease(tunnelId: string, now: Date, expiresAt: Date): Promise<void> {

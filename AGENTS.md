@@ -22,15 +22,18 @@ These instructions guide Copilot on code style, architectural patterns, testing 
 
 - CLI: `@ripeseed/rs-tunnel`
 - API: `@ripeseed/api`
+- Admin web app: `@ripeseed/admin-web`
 - Shared contracts: `@ripeseed/shared`
 - Domain model: `*.<CLOUDFLARE_BASE_DOMAIN>`
 - API host: `<API_BASE_URL>`
 
 The API is the source of truth for identity, authorization, Cloudflare tunnel lifecycle, and DNS lifecycle.
+The admin web app is an owner-only operations surface that authenticates through the API.
 
 ## Monorepo map
 
 - `apps/api`: Fastify API + Drizzle + Postgres + cleanup worker
+- `apps/web`: owner-only Next.js admin panel
 - `apps/cli`: user CLI (`login`, `up`, `list`, `stop`, `logout`, `doctor`)
 - `packages/shared`: Zod contracts/types consumed by API and CLI
 - `packages/config`: shared tooling config
@@ -79,7 +82,15 @@ pnpm --filter @ripeseed/api db:migrate
 pnpm --filter @ripeseed/api dev
 ```
 
-5. Run CLI against local API:
+5. Run the admin web app:
+
+```bash
+export RS_TUNNEL_API_URL=http://localhost:8080
+export ADMIN_SESSION_SECRET=replace-me-with-a-long-random-string
+pnpm --filter @ripeseed/admin-web dev -- --port 3001
+```
+
+6. Run CLI against local API:
 
 ```bash
 export RS_TUNNEL_API_URL=http://localhost:8080
@@ -90,6 +101,8 @@ pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts up --port 3000 --url my-
 
 Notes:
 
+- API runtime now also requires `ADMIN_WEB_BASE_URL`.
+- The first successful admin-panel Slack login claims instance ownership.
 - CLI commands accept `--domain <api-url>` and persist it for future runs.
 - First run with no configured domain prompts the user and stores it in `~/.rs-tunnel/config.json`.
 - For all commands, prefer setting `RS_TUNNEL_API_URL`.
@@ -157,7 +170,7 @@ Reason: CLI depends on shared package in registry.
 ## Code style and conventions
 
 - TypeScript strict mode; avoid `any` unless unavoidable.
-- ESM imports with `.js` suffix in source imports.
+- ESM imports with `.js` suffix in source imports, except for the Next.js app in `apps/web` where extensionless local imports are required for build compatibility.
 - Use shared Zod contracts from `@ripeseed/shared` for API/CLI payloads.
 - Keep public behavior backward-compatible for CLI commands.
 - Keep comments concise and only where logic is non-obvious.

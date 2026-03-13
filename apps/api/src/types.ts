@@ -1,4 +1,14 @@
-import type { UserProfile } from '@ripeseed/shared';
+import type {
+  AdminActivityEvent,
+  AdminBootstrapStatus,
+  AdminDashboard,
+  AdminRole,
+  AdminSession,
+  AdminTunnelDetailResponse,
+  AdminTunnelSummary,
+  AdminUserSummary,
+  UserProfile,
+} from '@ripeseed/shared';
 
 export type AccessTokenPayload = {
   sub: string;
@@ -18,6 +28,8 @@ export type TokenPair = {
   expiresInSec: number;
   profile: UserProfile;
 };
+
+export type AuthFlow = 'cli' | 'web';
 
 export type TunnelLeaseSummary = {
   lastHeartbeatAt: string;
@@ -89,17 +101,34 @@ export type TunnelRequestLog = {
   protocol: 'http' | 'ws';
 };
 
+export type AdminUserSession = {
+  id: string;
+  email: string;
+  slackUserId: string;
+  slackTeamId: string;
+  role: AdminRole;
+  roleGrantedAt: string | null;
+};
+
 export interface AuthService {
   startSlackAuth(input: { email: string; codeChallenge: string }): Promise<{
     authorizeUrl: string;
     state: string;
   }>;
-  handleSlackCallback(input: { state: string; code: string }): Promise<void>;
+  startAdminWebSlackAuth(): Promise<{
+    authorizeUrl: string;
+    state: string;
+  }>;
+  handleSlackCallback(input: { state: string; code: string }): Promise<{
+    mode: 'cli' | 'web';
+    redirectUrl?: string;
+  }>;
   getSlackAuthStatus(input: { state: string }): Promise<{
     status: 'pending' | 'authorized' | 'expired';
     loginCode?: string;
   }>;
   exchangeLoginCode(input: { loginCode: string; codeVerifier: string }): Promise<TokenPair>;
+  exchangeAdminWebLoginCode(input: { loginCode: string }): Promise<TokenPair>;
   refreshTokens(refreshToken: string): Promise<TokenPair>;
   logout(input: { userId?: string; refreshToken?: string }): Promise<void>;
 }
@@ -147,4 +176,20 @@ export interface TokenService {
 export interface CleanupService {
   sweepStaleLeases(): Promise<void>;
   processQueuedJobs(): Promise<void>;
+}
+
+export interface AdminService {
+  getBootstrapStatus(): Promise<AdminBootstrapStatus>;
+  getSession(userId: string): Promise<AdminSession>;
+  getDashboard(userId: string): Promise<AdminDashboard>;
+  listUsers(userId: string): Promise<AdminUserSummary[]>;
+  listTunnels(userId: string): Promise<AdminTunnelSummary[]>;
+  getTunnelDetail(input: { userId: string; tunnelId: string }): Promise<AdminTunnelDetailResponse>;
+  getTunnelMetrics(input: { userId: string; tunnelId: string; from: Date; to: Date; limit: number }): Promise<
+    TunnelMetricsPoint[]
+  >;
+  getTunnelRequests(input: { userId: string; tunnelId: string; after: Date | null; limit: number }): Promise<
+    TunnelRequestLog[]
+  >;
+  listActivity(input: { userId: string; limit: number }): Promise<AdminActivityEvent[]>;
 }

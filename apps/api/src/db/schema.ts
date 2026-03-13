@@ -18,10 +18,14 @@ export const users = pgTable('users', {
   email: varchar('email', { length: 255 }).notNull().unique(),
   slackUserId: varchar('slack_user_id', { length: 255 }).notNull(),
   slackTeamId: varchar('slack_team_id', { length: 255 }).notNull(),
+  adminRole: varchar('admin_role', { length: 32 }).notNull().default('member'),
+  roleGrantedAt: timestamp('role_granted_at', { withTimezone: true }),
   status: varchar('status', { length: 32 }).notNull().default('active'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  usersSingleOwnerIdx: uniqueIndex('users_single_owner_idx').on(table.adminRole).where(sql`admin_role = 'owner'`),
+}));
 
 export const oauthSessions = pgTable(
   'oauth_sessions',
@@ -31,6 +35,7 @@ export const oauthSessions = pgTable(
     state: varchar('state', { length: 255 }).notNull(),
     codeChallenge: varchar('code_challenge', { length: 255 }).notNull(),
     cliCallbackUrl: text('cli_callback_url').notNull(),
+    flow: varchar('flow', { length: 16 }).notNull().default('cli'),
     loginCode: varchar('login_code', { length: 255 }),
     userId: uuid('user_id').references(() => users.id),
     status: varchar('status', { length: 32 }).notNull().default('pending'),
@@ -239,3 +244,4 @@ export type DbTunnelLiveMetric = typeof tunnelLiveMetrics.$inferSelect;
 export type DbTunnelMetric = typeof tunnelMetrics.$inferSelect;
 export type DbTunnelRequest = typeof tunnelRequests.$inferSelect;
 export type DbCleanupJob = typeof cleanupJobs.$inferSelect;
+export type DbAuditLog = typeof auditLogs.$inferSelect;
