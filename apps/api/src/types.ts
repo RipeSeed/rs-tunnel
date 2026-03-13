@@ -90,11 +90,15 @@ export type TunnelRequestLog = {
 };
 
 export interface AuthService {
-  startSlackAuth(input: { email: string; codeChallenge: string; cliCallbackUrl: string }): Promise<{
+  startSlackAuth(input: { email: string; codeChallenge: string }): Promise<{
     authorizeUrl: string;
     state: string;
   }>;
-  handleSlackCallback(input: { state: string; code: string }): Promise<{ redirectUrl: string }>;
+  handleSlackCallback(input: { state: string; code: string }): Promise<void>;
+  getSlackAuthStatus(input: { state: string }): Promise<{
+    status: 'pending' | 'authorized' | 'expired';
+    loginCode?: string;
+  }>;
   exchangeLoginCode(input: { loginCode: string; codeVerifier: string }): Promise<TokenPair>;
   refreshTokens(refreshToken: string): Promise<TokenPair>;
   logout(input: { userId?: string; refreshToken?: string }): Promise<void>;

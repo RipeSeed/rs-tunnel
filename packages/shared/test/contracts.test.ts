@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { tunnelCreateResponseSchema, tunnelListResponseSchema, tunnelTelemetryIngestRequestSchema } from '../src/contracts.ts';
+import {
+  authStartRequestSchema,
+  authStatusResponseSchema,
+  tunnelCreateResponseSchema,
+  tunnelListResponseSchema,
+  tunnelTelemetryIngestRequestSchema,
+} from '../src/contracts.ts';
 
 describe('shared contracts', () => {
   it('accepts tunnel creation responses with runtime auth fields', () => {
@@ -79,5 +85,24 @@ describe('shared contracts', () => {
     };
 
     expect(() => tunnelTelemetryIngestRequestSchema.parse(base)).toThrow();
+  });
+
+  it('accepts auth start requests without a localhost callback URL', () => {
+    const parsed = authStartRequestSchema.parse({
+      email: 'osama@example.com',
+      codeChallenge: '12345678901234567890',
+    });
+
+    expect(parsed.email).toBe('osama@example.com');
+  });
+
+  it('accepts auth status responses for remote login completion', () => {
+    const parsed = authStatusResponseSchema.parse({
+      status: 'authorized',
+      loginCode: 'login-code-12345',
+    });
+
+    expect(parsed.status).toBe('authorized');
+    expect(parsed.loginCode).toBe('login-code-12345');
   });
 });

@@ -127,7 +127,6 @@ describe('AuthService integration behaviors', () => {
     const start = await service.startSlackAuth({
       email: 'osama@example.com',
       codeChallenge,
-      cliCallbackUrl: 'http://127.0.0.1:7777/callback',
     });
 
     vi.stubGlobal(
@@ -148,17 +147,17 @@ describe('AuthService integration behaviors', () => {
         }),
     );
 
-    const callback = await service.handleSlackCallback({
+    await service.handleSlackCallback({
       state: start.state,
       code: 'code-123',
     });
 
-    expect(callback.redirectUrl).toContain('http://127.0.0.1:7777/callback');
-    expect(callback.redirectUrl).toContain('code=');
+    const authStatus = await service.getSlackAuthStatus({ state: start.state });
+    expect(authStatus.status).toBe('authorized');
+    expect(authStatus.loginCode).toBeTruthy();
 
-    const loginCode = new URL(callback.redirectUrl).searchParams.get('code');
     const exchange = await service.exchangeLoginCode({
-      loginCode: loginCode ?? '',
+      loginCode: authStatus.loginCode ?? '',
       codeVerifier: verifier,
     });
 
@@ -178,7 +177,6 @@ describe('AuthService integration behaviors', () => {
       service.startSlackAuth({
         email: 'user@gmail.com',
         codeChallenge: 'challenge-123',
-        cliCallbackUrl: 'http://127.0.0.1:7777/callback',
       }),
     ).rejects.toThrowError(AppError);
   });
@@ -195,7 +193,6 @@ describe('AuthService integration behaviors', () => {
     const start = await service.startSlackAuth({
       email: 'osama@example.com',
       codeChallenge,
-      cliCallbackUrl: 'http://127.0.0.1:7777/callback',
     });
 
     vi.stubGlobal(

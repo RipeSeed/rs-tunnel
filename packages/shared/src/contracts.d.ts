@@ -70,15 +70,12 @@ export type UserProfile = z.infer<typeof userProfileSchema>;
 export declare const authStartRequestSchema: z.ZodObject<{
     email: z.ZodString;
     codeChallenge: z.ZodString;
-    cliCallbackUrl: z.ZodString;
 }, "strip", z.ZodTypeAny, {
     email: string;
     codeChallenge: string;
-    cliCallbackUrl: string;
 }, {
     email: string;
     codeChallenge: string;
-    cliCallbackUrl: string;
 }>;
 export declare const authStartResponseSchema: z.ZodObject<{
     authorizeUrl: z.ZodString;
@@ -89,6 +86,23 @@ export declare const authStartResponseSchema: z.ZodObject<{
 }, {
     authorizeUrl: string;
     state: string;
+}>;
+export declare const authStatusRequestSchema: z.ZodObject<{
+    state: z.ZodString;
+}, "strict", z.ZodTypeAny, {
+    state: string;
+}, {
+    state: string;
+}>;
+export declare const authStatusResponseSchema: z.ZodObject<{
+    status: z.ZodEnum<["pending", "authorized", "expired"]>;
+    loginCode: z.ZodOptional<z.ZodString>;
+}, "strict", z.ZodTypeAny, {
+    status: "pending" | "authorized" | "expired";
+    loginCode?: string | undefined;
+}, {
+    status: "pending" | "authorized" | "expired";
+    loginCode?: string | undefined;
 }>;
 export declare const authExchangeRequestSchema: z.ZodObject<{
     loginCode: z.ZodString;

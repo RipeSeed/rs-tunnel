@@ -84,7 +84,7 @@ pnpm --filter @ripeseed/api dev
 ```bash
 export RS_TUNNEL_API_URL=http://localhost:8080
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts login --email you@example.com
-pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts login --email you@example.com --print-auth-url
+pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts login --email you@example.com --skip-browser-open
 pnpm --filter @ripeseed/rs-tunnel exec tsx src/index.ts up --port 3000 --url my-app
 ```
 

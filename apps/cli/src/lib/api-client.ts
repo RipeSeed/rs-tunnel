@@ -1,6 +1,8 @@
 import {
   apiErrorSchema,
   authExchangeRequestSchema,
+  authStatusRequestSchema,
+  authStatusResponseSchema,
   authStartRequestSchema,
   authStartResponseSchema,
   heartbeatResponseSchema,
@@ -56,7 +58,7 @@ export class ApiClient {
     }
   }
 
-  async startSlackAuth(input: { email: string; codeChallenge: string; cliCallbackUrl: string }): Promise<{
+  async startSlackAuth(input: { email: string; codeChallenge: string }): Promise<{
     authorizeUrl: string;
     state: string;
   }> {
@@ -67,6 +69,19 @@ export class ApiClient {
     });
 
     return authStartResponseSchema.parse(response);
+  }
+
+  async getSlackAuthStatus(input: { state: string }): Promise<{
+    status: 'pending' | 'authorized' | 'expired';
+    loginCode?: string;
+  }> {
+    const body = authStatusRequestSchema.parse(input);
+    const response = await this.request('/v1/auth/slack/status', {
+      method: 'POST',
+      body,
+    });
+
+    return authStatusResponseSchema.parse(response);
   }
 
   async exchangeLoginCode(input: { loginCode: string; codeVerifier: string }) {

@@ -5,10 +5,14 @@ import { loginCommand } from './login.js';
 type LoginDependencies = NonNullable<Parameters<typeof loginCommand>[2]>;
 
 describe('loginCommand', () => {
-  it('prints the auth URL for external forwarding when requested', async () => {
+  it('prints the auth URL when browser auto-open is skipped', async () => {
     const startSlackAuth = vi.fn(async () => ({
       authorizeUrl: 'https://slack.example.com/auth',
       state: 'expected-state',
+    }));
+    const getSlackAuthStatus = vi.fn(async () => ({
+      status: 'authorized' as const,
+      loginCode: 'login-code',
     }));
     const exchangeLoginCode = vi.fn(async () => ({
       accessToken: 'access-token',
@@ -20,11 +24,6 @@ describe('loginCommand', () => {
         slackTeamId: 'T1',
       },
     }));
-    const waitForCode = vi.fn(async () => ({
-      code: 'login-code',
-      state: 'expected-state',
-    }));
-    const close = vi.fn(async () => {});
     const saveSession = vi.fn(async () => {});
     const openUrl = vi.fn(async () => {});
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -32,30 +31,28 @@ describe('loginCommand', () => {
       getCliConfig: () => ({ apiBaseUrl: 'https://api.example.com' }),
       createApiClient: () => ({
         startSlackAuth,
+        getSlackAuthStatus,
         exchangeLoginCode,
       }),
-      startCallbackServer: vi.fn(async () => ({
-        callbackUrl: 'http://127.0.0.1:7777/callback',
-        waitForCode,
-        close,
-      })),
       createPkcePair: () => ({
         verifier: 'verifier-value',
         challenge: 'challenge-value',
       }),
       openUrl,
       saveSession,
+      sleep: vi.fn(async () => {}),
     };
 
     try {
-      await loginCommand('test@example.com', { printAuthUrl: true }, dependencies);
+      await loginCommand('test@example.com', { skipBrowserOpen: true }, dependencies);
       expect(startSlackAuth).toHaveBeenCalledWith({
         email: 'test@example.com',
         codeChallenge: 'challenge-value',
-        cliCallbackUrl: 'http://127.0.0.1:7777/callback',
       });
       expect(openUrl).not.toHaveBeenCalled();
-      expect(waitForCode).toHaveBeenCalledTimes(1);
+      expect(getSlackAuthStatus).toHaveBeenCalledWith({
+        state: 'expected-state',
+      });
       expect(exchangeLoginCode).toHaveBeenCalledWith({
         loginCode: 'login-code',
         codeVerifier: 'verifier-value',
@@ -70,9 +67,8 @@ describe('loginCommand', () => {
         }),
       );
       expect(logSpy).toHaveBeenCalledWith('Slack Auth URL: https://slack.example.com/auth');
-      expect(logSpy).toHaveBeenCalledWith('Waiting for Slack OAuth callback...');
+      expect(logSpy).toHaveBeenCalledWith('Waiting for Slack OAuth confirmation...');
       expect(logSpy).toHaveBeenCalledWith('Logged in as test@example.com');
-      expect(close).toHaveBeenCalledTimes(1);
     } finally {
       logSpy.mockRestore();
     }
@@ -88,6 +84,10 @@ describe('loginCommand', () => {
           authorizeUrl: 'https://slack.example.com/auth',
           state: 'expected-state',
         })),
+        getSlackAuthStatus: vi.fn(async () => ({
+          status: 'authorized' as const,
+          loginCode: 'login-code',
+        })),
         exchangeLoginCode: vi.fn(async () => ({
           accessToken: 'access-token',
           refreshToken: 'refresh-token',
@@ -99,20 +99,13 @@ describe('loginCommand', () => {
           },
         })),
       }),
-      startCallbackServer: vi.fn(async () => ({
-        callbackUrl: 'http://127.0.0.1:7777/callback',
-        waitForCode: vi.fn(async () => ({
-          code: 'login-code',
-          state: 'expected-state',
-        })),
-        close: vi.fn(async () => {}),
-      })),
       createPkcePair: () => ({
         verifier: 'verifier-value',
         challenge: 'challenge-value',
       }),
       openUrl,
       saveSession: vi.fn(async () => {}),
+      sleep: vi.fn(async () => {}),
     };
 
     try {

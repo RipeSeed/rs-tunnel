@@ -27,12 +27,12 @@ program
 program
   .command('login')
   .requiredOption('--email <email>', 'Email for Slack OAuth')
-  .option('--print-auth-url', 'Print the Slack auth URL instead of opening a browser')
+  .option('--skip-browser-open', 'Skip automatically opening the browser and print the Slack auth URL')
   .option('--domain <domain-url>', domainOptionDescription)
-  .action(async (options: { email: string; domain?: string; printAuthUrl?: boolean }) => {
+  .action(async (options: { email: string; domain?: string; skipBrowserOpen?: boolean }) => {
     await applyDomainOption(options.domain);
     await loginCommand(options.email, {
-      printAuthUrl: options.printAuthUrl,
+      skipBrowserOpen: options.skipBrowserOpen,
     });
   });
 

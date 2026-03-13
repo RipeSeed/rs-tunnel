@@ -37,7 +37,6 @@ export class AuthService implements AuthServiceContract {
   async startSlackAuth(input: {
     email: string;
     codeChallenge: string;
-    cliCallbackUrl: string;
   }): Promise<{ authorizeUrl: string; state: string }> {
     const email = assertAllowedEmail(input.email, this.env.ALLOWED_EMAIL_DOMAIN);
 
@@ -48,7 +47,7 @@ export class AuthService implements AuthServiceContract {
       email,
       state,
       codeChallenge: input.codeChallenge,
-      cliCallbackUrl: input.cliCallbackUrl,
+      cliCallbackUrl: this.env.SLACK_REDIRECT_URI,
       expiresAt,
     });
 
@@ -66,7 +65,7 @@ export class AuthService implements AuthServiceContract {
     };
   }
 
-  async handleSlackCallback(input: { state: string; code: string }): Promise<{ redirectUrl: string }> {
+  async handleSlackCallback(input: { state: string; code: string }): Promise<void> {
     const session = await this.repository.getOauthSessionByState(input.state);
     if (!session) {
       throw new AppError(400, 'INVALID_STATE', 'OAuth state is invalid.');
@@ -118,14 +117,30 @@ export class AuthService implements AuthServiceContract {
       action: 'auth.oauth.authorized',
       metadata: { email },
     });
+  }
 
-    const redirect = new URL(session.cliCallbackUrl);
-    redirect.searchParams.set('code', loginCode);
-    redirect.searchParams.set('state', input.state);
+  async getSlackAuthStatus(input: { state: string }): Promise<{
+    status: 'pending' | 'authorized' | 'expired';
+    loginCode?: string;
+  }> {
+    const session = await this.repository.getOauthSessionByState(input.state);
 
-    return {
-      redirectUrl: redirect.toString(),
-    };
+    if (!session) {
+      throw new AppError(400, 'INVALID_STATE', 'OAuth state is invalid.');
+    }
+
+    if (session.expiresAt.getTime() < Date.now() || session.status === 'consumed') {
+      return { status: 'expired' };
+    }
+
+    if (session.status === 'authorized' && session.loginCode) {
+      return {
+        status: 'authorized',
+        loginCode: session.loginCode,
+      };
+    }
+
+    return { status: 'pending' };
   }
 
   async exchangeLoginCode(input: { loginCode: string; codeVerifier: string }): Promise<TokenPair> {
